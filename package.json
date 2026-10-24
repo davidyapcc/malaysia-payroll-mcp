@@ -1,0 +1,59 @@
+{
+  "name": "malaysia-payroll-mcp",
+  "version": "0.0.0",
+  "description": "MCP server for Malaysian statutory payroll deductions (EPF, SOCSO, EIS, MTD/PCB), with a citation behind every number",
+  "license": "MIT",
+  "author": "David Yap",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davidyapcc/malaysia-payroll-mcp.git"
+  },
+  "homepage": "https://github.com/davidyapcc/malaysia-payroll-mcp#readme",
+  "bugs": "https://github.com/davidyapcc/malaysia-payroll-mcp/issues",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "malaysia",
+    "payroll",
+    "epf",
+    "socso",
+    "eis",
+    "pcb",
+    "mtd"
+  ],
+  "mcpName": "io.github.davidyapcc/malaysia-payroll-mcp",
+  "type": "module",
+  "bin": {
+    "malaysia-payroll-mcp": "dist/entry/stdio.js"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "check": "pnpm lint && pnpm typecheck && pnpm test",
+    "prepublishOnly": "pnpm build"
+  },
+  "packageManager": "pnpm@12.15.0",
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.2",
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@types/node": "^22.20.5",
+    "@vitest/coverage-v8": "^5.0.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

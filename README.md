@@ -15,6 +15,17 @@ An MCP server that works out Malaysian statutory payroll deductions (EPF, SOCSO,
 - [Golden test cases](docs/golden-cases.md), worked by hand from those sources
 - [Rate tables](docs/data/) as CSV, the source of truth for every lookup
 
+## Development
+
+Needs Node 22 or later and pnpm (the version is pinned in `package.json`).
+
+```sh
+pnpm install
+pnpm check          # Biome lint and format check, tsc, Vitest
+pnpm test:coverage  # tests with v8 coverage
+pnpm build          # compile to dist/
+```
+
 ## Licence
 
 [MIT](LICENSE)

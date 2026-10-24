@@ -1,0 +1,5 @@
+# pnpm 12 holds back versions published in the last day; these were too new when added.
+minimumReleaseAgeExclude:
+  - "@modelcontextprotocol/core@2.4.0"
+  - "@modelcontextprotocol/server@2.4.0"
+  - "@modelcontextprotocol/client@2.4.0"
