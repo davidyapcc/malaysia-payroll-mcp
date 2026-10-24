@@ -21,10 +21,13 @@ Needs Node 22 or later and pnpm (the version is pinned in `package.json`).
 
 ```sh
 pnpm install
-pnpm check          # Biome lint and format check, tsc, Vitest
+pnpm check          # generated tables, Biome lint and format check, tsc, Vitest
+pnpm gen:tables     # regenerate src/tables/generated/ after editing docs/data/
 pnpm test:coverage  # tests with v8 coverage
 pnpm build          # compile to dist/
 ```
+
+To change a rate, edit or add a CSV in `docs/data/` (with its entry in `docs/data/sources.json`), run `pnpm gen:tables` and commit both. Never edit `src/tables/generated/` by hand: CI rejects it ([ADR 0003](docs/adr/0003-csv-rate-tables-are-canonical.md)).
 
 ## Licence
 

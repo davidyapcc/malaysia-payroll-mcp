@@ -38,9 +38,11 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome check --write .",
+    "gen:tables": "node scripts/gen-tables.ts",
+    "gen:tables:check": "node scripts/gen-tables.ts --check",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "check": "pnpm lint && pnpm typecheck && pnpm test",
+    "check": "pnpm gen:tables:check && pnpm lint && pnpm typecheck && pnpm test",
     "prepublishOnly": "pnpm build"
   },
   "packageManager": "pnpm@12.15.0",
