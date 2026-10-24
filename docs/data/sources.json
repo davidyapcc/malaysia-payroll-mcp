@@ -4,8 +4,13 @@
     "url": "https://www.kwsp.gov.my/documents/d/guest/third_schedule_from_-1-october-2025",
     "retrieved": "2026-10-23"
   },
-  "socso-act4-with-skbbk-from-2026-06-01.csv": {
-    "title": "PERKESO: Act 4 contribution rates including SKBBK (Lindung 24 Jam)",
+  "socso-act4-from-2024-10-01.csv": {
+    "title": "PERKESO: Act 4 contribution rates (employer and invalidity columns)",
+    "url": "https://www.perkeso.gov.my/images/lindung/lindung-24-jam/NewContributionRateIncludingSKBBK.pdf",
+    "retrieved": "2026-10-23"
+  },
+  "skbbk-act4-from-2026-06-01.csv": {
+    "title": "PERKESO: Act 4 contribution rates including SKBBK (SKBBK column)",
     "url": "https://www.perkeso.gov.my/images/lindung/lindung-24-jam/NewContributionRateIncludingSKBBK.pdf",
     "retrieved": "2026-10-23"
   },

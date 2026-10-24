@@ -9,20 +9,22 @@ import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { TableSource } from "../src/tables/loader.js";
-import type { EisBand, EpfBand, EpfPart, SocsoBand } from "../src/tables/types.js";
+import type { EisBand, EpfBand, EpfPart, SkbbkBand, SocsoBand } from "../src/tables/types.js";
 
-const KINDS = ["epf", "socso", "eis"] as const;
+const KINDS = ["epf", "socso", "skbbk", "eis"] as const;
 type Kind = (typeof KINDS)[number];
 
-const CSV_NAME = /^(epf|socso|eis)-[a-z0-9-]+-from-(\d{4}-(?:0[1-9]|1[0-2])-01)\.csv$/;
+const CSV_NAME = /^(epf|socso|skbbk|eis)-[a-z0-9-]+-from-(\d{4}-(?:0[1-9]|1[0-2])-01)\.csv$/;
 const RM = /^\d+(?:\.\d{1,2})?$/;
 const SEN = /^\d+$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const TITLE_MAX = 80;
 
 const HEADERS: Record<Kind, string> = {
   epf: "part,wage_from_rm,wage_to_rm,employer_rm,employee_rm,total_rm",
   socso:
-    "no,wage_above_rm,wage_up_to_rm,cat1_employer_sen,cat1_employee_invalidity_sen,skbbk_employee_sen,cat1_total_sen,cat2_employer_sen,cat2_total_sen",
+    "no,wage_above_rm,wage_up_to_rm,cat1_employer_sen,cat1_employee_invalidity_sen,cat1_total_sen,cat2_employer_sen,cat2_total_sen",
+  skbbk: "no,wage_above_rm,wage_up_to_rm,employee_sen",
   eis: "no,wage_above_rm,wage_up_to_rm,employer_sen,employee_sen,total_sen",
 };
 
@@ -92,13 +94,15 @@ function readSources(path: string): Record<string, TableSource> {
     if (
       typeof title !== "string" ||
       title === "" ||
+      // Longer titles make Biome wrap the line, and the output would no longer match it.
+      title.length > TITLE_MAX ||
       typeof url !== "string" ||
       !url.startsWith("https://") ||
       typeof retrieved !== "string" ||
       !DATE.test(retrieved)
     ) {
       throw new TableDataError(
-        `sources.json: "${name}" needs a title, an https url and a retrieved date (YYYY-MM-DD).`,
+        `sources.json: "${name}" needs a title of at most ${TITLE_MAX} characters, an https url and a retrieved date (YYYY-MM-DD).`,
       );
     }
     sources[name] = { title, url, retrieved };
@@ -111,7 +115,7 @@ export function parseCsv(csv: string, text: string, source: TableSource): Parsed
   const match = CSV_NAME.exec(csv);
   if (match === null) {
     throw new TableDataError(
-      `${csv}: name must be <epf|socso|eis>-<description>-from-<YYYY-MM-01>.csv.`,
+      `${csv}: name must be <epf|socso|skbbk|eis>-<description>-from-<YYYY-MM-01>.csv.`,
     );
   }
   const kind = match[1] as Kind;
@@ -132,6 +136,8 @@ export function parseCsv(csv: string, text: string, source: TableSource): Parsed
       return { ...parsed, body: renderEpf(meta, parseEpf(rows)) };
     case "socso":
       return { ...parsed, body: renderBanded(meta, "SocsoTable", "bands", parseSocso(rows)) };
+    case "skbbk":
+      return { ...parsed, body: renderBanded(meta, "SkbbkTable", "bands", parseSkbbk(rows)) };
     case "eis":
       return { ...parsed, body: renderBanded(meta, "EisTable", "bands", parseEis(rows)) };
   }
@@ -248,24 +254,36 @@ function parseEpf(rows: readonly Row[]): Record<EpfPart, EpfBand[]> {
 
 function parseSocso(rows: readonly Row[]): SocsoBand[] {
   const bands = rows.map((row): SocsoBand => {
-    row.expectCells(9);
+    row.expectCells(8);
     const band: SocsoBand = {
       no: row.int(0),
       above: row.rm(1),
       upTo: row.rmOrOpen(2),
       cat1Employer: row.int(3),
       cat1EmployeeInvalidity: row.int(4),
-      skbbkEmployee: row.int(5),
-      cat2Employer: row.int(7),
+      cat2Employer: row.int(6),
     };
     checkTotal(
       row,
-      row.int(6),
-      [band.cat1Employer, band.cat1EmployeeInvalidity, band.skbbkEmployee],
+      row.int(5),
+      [band.cat1Employer, band.cat1EmployeeInvalidity],
       "first category total",
     );
-    checkTotal(row, row.int(8), [band.cat2Employer, band.skbbkEmployee], "second category total");
+    checkTotal(row, row.int(7), [band.cat2Employer], "second category total");
     return band;
+  });
+  checkNumbering(
+    rows,
+    bands.map((band) => band.no),
+  );
+  checkBands(rows, bands);
+  return bands;
+}
+
+function parseSkbbk(rows: readonly Row[]): SkbbkBand[] {
+  const bands = rows.map((row): SkbbkBand => {
+    row.expectCells(4);
+    return { no: row.int(0), above: row.rm(1), upTo: row.rmOrOpen(2), employee: row.int(3) };
   });
   checkNumbering(
     rows,
@@ -378,6 +396,7 @@ function renderBanded(meta: Meta, type: string, key: string, bands: readonly obj
 const TABLE_TYPES: Record<Kind, string> = {
   epf: "EpfTable",
   socso: "SocsoTable",
+  skbbk: "SkbbkTable",
   eis: "EisTable",
 };
 

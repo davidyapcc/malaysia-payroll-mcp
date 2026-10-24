@@ -110,13 +110,14 @@ describe("gen-tables", () => {
       expect(() => generate(data)).toThrow(`sources.json: "${EIS_CSV}" has no matching CSV.`);
     });
 
-    it.each([[[]], [{ [EIS_CSV]: { ...SOURCE, url: "http://example.com" } }]])(
-      "rejects a malformed manifest %j",
-      (sources) => {
-        const data = dataDir(sources, { [EIS_CSV]: eis("1,0,30,5,5,10") });
-        expect(() => generate(data)).toThrow(TableDataError);
-      },
-    );
+    it.each([
+      [[]],
+      [{ [EIS_CSV]: { ...SOURCE, url: "http://example.com" } }],
+      [{ [EIS_CSV]: { ...SOURCE, title: "x".repeat(81) } }],
+    ])("rejects a malformed manifest %j", (sources) => {
+      const data = dataDir(sources, { [EIS_CSV]: eis("1,0,30,5,5,10") });
+      expect(() => generate(data)).toThrow(TableDataError);
+    });
 
     it("rejects two tables of one kind with the same effective date", () => {
       const other = "eis-other-from-2026-01-01.csv";

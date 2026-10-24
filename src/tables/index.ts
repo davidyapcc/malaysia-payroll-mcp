@@ -1,6 +1,6 @@
-import { eisTables, epfTables, socsoTables } from "./generated/index.js";
+import { eisTables, epfTables, skbbkTables, socsoTables } from "./generated/index.js";
 import { selectTable } from "./loader.js";
-import type { EisTable, EpfTable, SocsoTable } from "./types.js";
+import type { EisTable, EpfTable, SkbbkTable, SocsoTable } from "./types.js";
 
 export { NoTableInEffectError } from "./loader.js";
 export type * from "./types.js";
@@ -13,6 +13,15 @@ export function epfTableFor(payPeriod: string): EpfTable {
 /** The SOCSO (Act 4) table in effect for a pay period (YYYY-MM). */
 export function socsoTableFor(payPeriod: string): SocsoTable {
   return selectTable("socso", socsoTables, payPeriod);
+}
+
+/**
+ * The SKBBK (Lindung 24 Jam) table in effect for a pay period (YYYY-MM). SKBBK starts with
+ * June 2026 payroll, so earlier periods throw NoTableInEffectError: callers treat that as nothing
+ * to pay, not as an invalid pay period.
+ */
+export function skbbkTableFor(payPeriod: string): SkbbkTable {
+  return selectTable("skbbk", skbbkTables, payPeriod);
 }
 
 /** The EIS (Act 800) table in effect for a pay period (YYYY-MM). */

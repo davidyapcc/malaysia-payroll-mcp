@@ -6,7 +6,10 @@ import {
   type EpfBand,
   eisTableFor,
   epfTableFor,
+  NoTableInEffectError,
+  type SkbbkBand,
   type SocsoBand,
+  skbbkTableFor,
   socsoTableFor,
 } from "../../src/tables/index.js";
 
@@ -68,11 +71,12 @@ describe("EPF Third Schedule from 1 Oct 2025", () => {
   });
 });
 
-describe("SOCSO Act 4 table from 1 Jun 2026", () => {
+describe("SOCSO Act 4 table from 1 Oct 2024", () => {
   const table = socsoTableFor("2026-11");
 
-  it("is the table in effect for current pay periods", () => {
-    expect(table).toMatchObject({ kind: "socso", effectiveFrom: "2026-06-01" });
+  it("is the table in effect for current pay periods, and before SKBBK started (SOC-06)", () => {
+    expect(table).toMatchObject({ kind: "socso", effectiveFrom: "2024-10-01" });
+    expect(socsoTableFor("2026-05")).toBe(table);
   });
 
   it("has 65 bands, the last one open above the RM6,000 ceiling", () => {
@@ -85,13 +89,34 @@ describe("SOCSO Act 4 table from 1 Jun 2026", () => {
       no: 34,
       cat1Employer: 5165,
       cat1EmployeeInvalidity: 1475,
-      skbbkEmployee: 2215,
       cat2Employer: 3690,
     });
   });
 
   it("puts wages with cents into the band above, not a gap", () => {
     expect(bandFor<SocsoBand>(table.bands, 300_001).no).toBe(35);
+  });
+});
+
+describe("SKBBK table from 1 Jun 2026", () => {
+  const table = skbbkTableFor("2026-11");
+
+  it("starts with June 2026 payroll", () => {
+    expect(table).toMatchObject({ kind: "skbbk", effectiveFrom: "2026-06-01" });
+    expect(skbbkTableFor("2026-06")).toBe(table);
+    expect(() => skbbkTableFor("2026-05")).toThrow(NoTableInEffectError);
+  });
+
+  it("uses the same 65 bands as the SOCSO table", () => {
+    const socso = socsoTableFor("2026-11").bands;
+    expect(table.bands.map(({ no, above, upTo }) => ({ no, above, upTo }))).toEqual(
+      socso.map(({ no, above, upTo }) => ({ no, above, upTo })),
+    );
+  });
+
+  it("finds the golden SOC-01 band (row 34, RM3,000) and caps at RM44.65", () => {
+    expect(bandFor<SkbbkBand>(table.bands, 300_000)).toMatchObject({ no: 34, employee: 2215 });
+    expect(bandFor<SkbbkBand>(table.bands, 1_000_000)).toMatchObject({ no: 65, employee: 4465 });
   });
 });
 

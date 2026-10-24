@@ -25,10 +25,8 @@ export interface SocsoBand {
   readonly upTo: number | null;
   /** First category (employment injury and invalidity), employer share. */
   readonly cat1Employer: number;
-  /** First category, employee share for invalidity. Excludes SKBBK. */
+  /** First category, employee share for invalidity. SKBBK is its own table. */
   readonly cat1EmployeeInvalidity: number;
-  /** SKBBK (Lindung 24 Jam), employee only, the same in both categories. */
-  readonly skbbkEmployee: number;
   /** Second category (employment injury only), employer share. */
   readonly cat2Employer: number;
 }
@@ -36,6 +34,20 @@ export interface SocsoBand {
 export interface SocsoTable extends RateTableMeta {
   readonly kind: "socso";
   readonly bands: readonly SocsoBand[];
+}
+
+/** SKBBK (Lindung 24 Jam): employee only, the same in both SOCSO categories. */
+export interface SkbbkBand {
+  /** Row number in the PERKESO Act 4 table, for citations. */
+  readonly no: number;
+  readonly above: number;
+  readonly upTo: number | null;
+  readonly employee: number;
+}
+
+export interface SkbbkTable extends RateTableMeta {
+  readonly kind: "skbbk";
+  readonly bands: readonly SkbbkBand[];
 }
 
 export interface EisBand {
