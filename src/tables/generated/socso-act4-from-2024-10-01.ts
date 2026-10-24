@@ -8,9 +8,9 @@ export const table: SocsoTable = {
   effectiveFrom: "2024-10-01",
   csv: "docs/data/socso-act4-from-2024-10-01.csv",
   source: {
-    title: "PERKESO: Act 4 contribution rates (employer and invalidity columns)",
-    url: "https://www.perkeso.gov.my/images/lindung/lindung-24-jam/NewContributionRateIncludingSKBBK.pdf",
-    retrieved: "2026-10-23",
+    title: "PERKESO: Act 4 contribution rates (from 1 October 2024)",
+    url: "https://www.perkeso.gov.my/images/dokumen/151124-Rate%20Contribution%20ACT%204.pdf",
+    retrieved: "2026-10-24",
   },
   bands: [
     { no: 1, above: 0, upTo: 3000, cat1Employer: 40, cat1EmployeeInvalidity: 10, cat2Employer: 30 },

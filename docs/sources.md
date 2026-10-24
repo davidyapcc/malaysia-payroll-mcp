@@ -44,7 +44,8 @@ Rules that matter for the code:
 | --- | --- | --- |
 | Rates page | [PERKESO: Contribution rate](https://www.perkeso.gov.my/en/rate-of-contribution.html) | ✅ |
 | Act 4 table, including SKBBK | [NewContributionRateIncludingSKBBK.pdf](https://www.perkeso.gov.my/images/lindung/lindung-24-jam/NewContributionRateIncludingSKBBK.pdf) | ✅ all 8 pages read on Oct 23, 2026 |
-| Machine-readable copy | Split into two tables (decided Oct 24, 2026), because SKBBK's rate changes on its own dates: [`data/socso-act4-from-2024-10-01.csv`](data/socso-act4-from-2024-10-01.csv) (employer and invalidity, 65 bands, in sen) and [`data/skbbk-act4-from-2026-06-01.csv`](data/skbbk-act4-from-2026-06-01.csv) (the SKBBK column, same bands) | ✅ in the PDF every row passes `employer + invalidity + skbbk = total` (cat 1) and `employer + skbbk = total` (cat 2). ⚠️ The SOCSO table is dated 1 Oct 2024 (the RM6,000 ceiling) but its amounts come from the 2026 PDF; see the open check below |
+| Machine-readable copy | Split into two tables (decided Oct 24, 2026), because SKBBK's rate changes on its own dates: [`data/socso-act4-from-2024-10-01.csv`](data/socso-act4-from-2024-10-01.csv) (employer and invalidity, 65 bands, in sen) and [`data/skbbk-act4-from-2026-06-01.csv`](data/skbbk-act4-from-2026-06-01.csv) (the SKBBK column, same bands) | ✅ in the PDF every row passes `employer + invalidity + skbbk = total` (cat 1) and `employer + skbbk = total` (cat 2). ✅ All 65 rows of the SOCSO CSV match the pre-SKBBK Act 4 table, checked Oct 24, 2026 (see below) |
+| Act 4 table before SKBBK | [151124-Rate Contribution ACT 4.pdf](https://www.perkeso.gov.my/images/dokumen/151124-Rate%20Contribution%20ACT%204.pdf), for wage months from Oct 2024. No longer linked from PERKESO's rates page; a [Feb 2026 web-archive copy](https://web.archive.org/web/20260207013319id_/https://www.perkeso.gov.my/images/dokumen/151124-Rate%20Contribution%20ACT%204.pdf) still has it | ✅ read Oct 24, 2026 from the copy you uploaded. Employer, employee and second-category amounts equal the 2026 table's for all 65 rows, so SKBBK changed nothing else |
 | Wage ceiling FAQ | [FAQ: ceiling RM5k to RM6k](https://www.perkeso.gov.my/images/dokumen/011024%20-%20FAQ%20PENINGKATAN%20HAD%20SILING%20GAJI%20DARI%20RM5K%20KEPADA%20RM6K%20DI%20BAWAH%20AKSP%20969%20AKTA%204%20%20ASIP%202017%20AKTA%20800.pdf) | ✅ (linked, not read) |
 
 - Wage ceiling: **RM6,000 from 1 Oct 2024** (it was RM5,000 before). ✅
@@ -84,7 +85,7 @@ Sources: [Mercans: made voluntary](https://mercans.com/resources/statutory-alert
 | Item | Value | Status |
 | --- | --- | --- |
 | Act 800 table | [151124-Rate Contribution ACT 800.pdf](https://www.perkeso.gov.my/images/dokumen/151124-Rate%20Contribution%20ACT%20800.pdf) | ✅ read from the PDF on Oct 23, 2026 |
-| Machine-readable copy | [`data/eis-act800-from-2024-10-01.csv`](data/eis-act800-from-2024-10-01.csv) (65 bands, in sen) | ✅ spot-checked against the PDF |
+| Machine-readable copy | [`data/eis-act800-from-2024-10-01.csv`](data/eis-act800-from-2024-10-01.csv) (65 bands, in sen) | ✅ all 65 rows checked against the PDF on Oct 24, 2026 |
 
 - 65 wage bands. Employer and employee pay the same amount. ✅
 - Bands 1 to 9 (up to RM500) are irregular: 5, 10, 15, 20, 25, 35, 50, 70 and 90 sen.
@@ -116,5 +117,5 @@ Sources: [Mercans: made voluntary](https://mercans.com/resources/statutory-alert
 - [x] SKBBK opt-out confirmed (user, Oct 23, 2026).
 - [x] Research SKBBK rules (Oct 23, 2026): opt-out, default covered, locals only.
 - [x] Official per-band SKBBK amounts, taken from the PERKESO Act 4 PDF (Oct 23, 2026).
-- [ ] Check against the Oct 2024 Act 4 table (before SKBBK) that employer and invalidity amounts didn't change in Jun 2026. `socso-act4-from-2024-10-01.csv` assumes they didn't, and pay periods Oct 2024 to May 2026 (SOC-06) rely on it.
+- [x] Check against the Oct 2024 Act 4 table (before SKBBK) that employer and invalidity amounts didn't change in Jun 2026 (Oct 24, 2026: all 65 rows match).
 - [x] All three rate tables (EPF, SOCSO + SKBBK, EIS) are in `docs/data/` as CSV (Oct 23, 2026). They stay there as the source of truth, and Phase 1 generates TS modules from them (ADR 0003).
