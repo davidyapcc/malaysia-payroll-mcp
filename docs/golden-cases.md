@@ -32,6 +32,7 @@ All amounts are in RM. "ee" is the employee share and "er" the employer share.
 | SOC-04 | Malaysian, 30, wages 8,000.00, covered | er 104.15, ee 29.75, SKBBK 44.65 | Row 65 (above 6,000) | Wage ceiling | ✅ |
 | SOC-05 | Non-Malaysian without PR, 30, wages 3,000.00, opted out | **Validation error**: foreign workers can't opt out of SKBBK | sources.md, SKBBK section | Input guard | ✅ |
 | SOC-06 | Malaysian, 30, wages 3,000.00, pay period **2026-05**, covered | er 51.65, ee 14.75, SKBBK **0** | Row 34 without the SKBBK column | Boundary month: deductions start with June 2026 payroll | ✅ |
+| SOC-07 | Non-Malaysian without PR, 30, wages 3,000.00, pay period 2026-11, covered | er 36.90, ee 0, SKBBK 22.15, EIS 0 / 0 | Row 34, second category; SKBBK column | Foreign workers: employment injury only (second category), SKBBK still mandatory, EIS exempt | ✅ confirmed by user, Oct 24, 2026 |
 
 ## EIS (Act 800 table, from 1 Oct 2024)
 

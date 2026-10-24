@@ -175,6 +175,21 @@
       }
     },
     {
+      "id": "SOC-07",
+      "input": {
+        "monthlySalary": 3000,
+        "age": 30,
+        "citizenship": "non_malaysian",
+        "skbbkStatus": "covered",
+        "payPeriod": "2026-11"
+      },
+      "expected": {
+        "socso": { "category": "second", "employer": 36.9, "employee": 0 },
+        "skbbk": { "employee": 22.15 },
+        "eis": { "covered": false, "employer": 0, "employee": 0 }
+      }
+    },
+    {
       "id": "EIS-01",
       "input": {
         "monthlySalary": 3000,
