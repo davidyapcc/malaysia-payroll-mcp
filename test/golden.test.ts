@@ -1,5 +1,6 @@
 // Runs every golden case through the core. The cases are the source of truth (test/golden/);
 // docs/golden-cases.md explains each one.
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { calculateEpf, type EpfInput } from "../src/core/epf.js";
 import { PayrollInputError } from "../src/core/errors.js";
@@ -30,4 +31,31 @@ describe("golden cases: EPF", () => {
 
 describe("golden cases: SOCSO, SKBBK and EIS", () => {
   run(golden.socsoEis as GoldenCase<SocsoEisInput>[], calculateSocsoEis);
+});
+
+describe("golden cases: completeness", () => {
+  const doc = readFileSync(new URL("../docs/golden-cases.md", import.meta.url), "utf8");
+  const cases = [...golden.epf, ...golden.socsoEis] as GoldenCase<unknown>[];
+  const ids = cases.map((c) => c.id);
+
+  // MTD and net pay cases are documented but join cases.json in Phase 2.
+  const pending = /^(MTD|NET)-/;
+  const documented = [...new Set(doc.match(/\b[A-Z]{3}-\d{2}\b/g))].filter(
+    (id) => !pending.test(id),
+  );
+
+  it("runs every documented case, and only those", () => {
+    expect([...ids].sort()).toEqual(documented.sort());
+  });
+
+  it("has no duplicate IDs", () => {
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("gives every case either a non-empty expected result or an error", () => {
+    for (const c of cases) {
+      const hasExpected = c.expected !== undefined && Object.keys(c.expected).length > 0;
+      expect(hasExpected !== (c.error !== undefined), c.id).toBe(true);
+    }
+  });
 });
