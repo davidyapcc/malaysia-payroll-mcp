@@ -2,7 +2,16 @@
 
 An MCP server that works out Malaysian statutory payroll deductions (EPF, SOCSO, EIS and MTD/PCB) for one resident employee's monthly salary, and cites the official rate table or rule behind every number.
 
-**Status: pre-release.** The design and test data are done; the code arrives in Phase 1. Nothing is published to npm yet.
+**Status: pre-release.** EPF, SOCSO, SKBBK and EIS are in; MTD and net pay come next. Nothing is published to npm yet.
+
+## Tools
+
+| Tool | What it works out |
+| --- | --- |
+| `calculate_epf` | EPF employee and employer contributions, from the Third Schedule in effect |
+| `calculate_socso_eis` | SOCSO, SKBBK (Lindung 24 Jam) and EIS contributions, from the PERKESO tables in effect |
+
+Every result echoes the pay period it used (the current month in Malaysia if you don't pass one), and carries citations, an explanation rendered from them, and a disclaimer.
 
 > Not tax advice and not LHDN-verified. Fixed monthly salaries only: overtime, commission, bonuses and arrears aren't supported.
 

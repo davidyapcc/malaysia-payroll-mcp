@@ -1,0 +1,220 @@
+{
+  "$comment": "Golden cases: the source of truth for expected results. IDs match docs/golden-cases.md, which keeps the reasoning behind each case. Amounts are in RM. MTD and net pay cases join in Phase 2.",
+  "epf": [
+    {
+      "id": "EPF-01",
+      "input": {
+        "monthlySalary": 10,
+        "age": 30,
+        "citizenship": "malaysian",
+        "payPeriod": "2026-11"
+      },
+      "expected": { "part": "A", "employer": 0, "employee": 0, "total": 0 }
+    },
+    {
+      "id": "EPF-02",
+      "input": {
+        "monthlySalary": 3000,
+        "age": 30,
+        "citizenship": "malaysian",
+        "payPeriod": "2026-11"
+      },
+      "expected": { "part": "A", "employer": 390, "employee": 330, "total": 720 }
+    },
+    {
+      "id": "EPF-03",
+      "input": {
+        "monthlySalary": 5000,
+        "age": 30,
+        "citizenship": "malaysian",
+        "payPeriod": "2026-11"
+      },
+      "expected": { "part": "A", "employer": 650, "employee": 550, "total": 1200 }
+    },
+    {
+      "id": "EPF-04",
+      "input": {
+        "monthlySalary": 5000.01,
+        "age": 30,
+        "citizenship": "malaysian",
+        "payPeriod": "2026-11"
+      },
+      "expected": { "part": "A", "employer": 612, "employee": 561, "total": 1173 }
+    },
+    {
+      "id": "EPF-05",
+      "input": {
+        "monthlySalary": 25000,
+        "age": 30,
+        "citizenship": "malaysian",
+        "payPeriod": "2026-11"
+      },
+      "expected": { "part": "A", "employer": 3000, "employee": 2750, "total": 5750 }
+    },
+    {
+      "id": "EPF-09",
+      "input": {
+        "monthlySalary": 25000.5,
+        "age": 30,
+        "citizenship": "malaysian",
+        "payPeriod": "2026-11"
+      },
+      "expected": { "part": "A", "employer": 3001, "employee": 2751, "total": 5752 }
+    },
+    {
+      "id": "EPF-06",
+      "input": {
+        "monthlySalary": 4500,
+        "age": 62,
+        "citizenship": "permanent_resident",
+        "payPeriod": "2026-11"
+      },
+      "expected": { "part": "C", "employer": 293, "employee": 248, "total": 541 }
+    },
+    {
+      "id": "EPF-07",
+      "input": {
+        "monthlySalary": 3000,
+        "age": 65,
+        "citizenship": "malaysian",
+        "payPeriod": "2026-11"
+      },
+      "expected": { "part": "E", "employer": 120, "employee": 0, "total": 120 }
+    },
+    {
+      "id": "EPF-08",
+      "input": {
+        "monthlySalary": 3500,
+        "age": 30,
+        "citizenship": "non_malaysian",
+        "payPeriod": "2026-11"
+      },
+      "expected": { "part": "F", "employer": 70, "employee": 70, "total": 140 }
+    }
+  ],
+  "socsoEis": [
+    {
+      "id": "SOC-01",
+      "input": {
+        "monthlySalary": 3000,
+        "age": 30,
+        "citizenship": "malaysian",
+        "skbbkStatus": "covered",
+        "payPeriod": "2026-11"
+      },
+      "expected": {
+        "socso": { "category": "first", "employer": 51.65, "employee": 14.75 },
+        "skbbk": { "employee": 22.15 }
+      }
+    },
+    {
+      "id": "SOC-02",
+      "input": {
+        "monthlySalary": 3000,
+        "age": 30,
+        "citizenship": "malaysian",
+        "skbbkStatus": "opted_out",
+        "payPeriod": "2026-11"
+      },
+      "expected": {
+        "socso": { "category": "first", "employer": 51.65, "employee": 14.75 },
+        "skbbk": { "employee": 0 }
+      }
+    },
+    {
+      "id": "SOC-03",
+      "input": {
+        "monthlySalary": 3000,
+        "age": 62,
+        "citizenship": "malaysian",
+        "skbbkStatus": "opted_out",
+        "payPeriod": "2026-11"
+      },
+      "expected": {
+        "socso": { "category": "second", "employer": 36.9, "employee": 0 },
+        "skbbk": { "employee": 0 }
+      }
+    },
+    {
+      "id": "SOC-04",
+      "input": {
+        "monthlySalary": 8000,
+        "age": 30,
+        "citizenship": "malaysian",
+        "skbbkStatus": "covered",
+        "payPeriod": "2026-11"
+      },
+      "expected": {
+        "socso": { "category": "first", "employer": 104.15, "employee": 29.75 },
+        "skbbk": { "employee": 44.65 }
+      }
+    },
+    {
+      "id": "SOC-05",
+      "input": {
+        "monthlySalary": 3000,
+        "age": 30,
+        "citizenship": "non_malaysian",
+        "skbbkStatus": "opted_out",
+        "payPeriod": "2026-11"
+      },
+      "error": "Foreign workers can't opt out of SKBBK"
+    },
+    {
+      "id": "SOC-06",
+      "input": {
+        "monthlySalary": 3000,
+        "age": 30,
+        "citizenship": "malaysian",
+        "skbbkStatus": "covered",
+        "payPeriod": "2026-05"
+      },
+      "expected": {
+        "socso": { "category": "first", "employer": 51.65, "employee": 14.75 },
+        "skbbk": { "employee": 0 }
+      }
+    },
+    {
+      "id": "EIS-01",
+      "input": {
+        "monthlySalary": 3000,
+        "age": 30,
+        "citizenship": "malaysian",
+        "payPeriod": "2026-11"
+      },
+      "expected": { "eis": { "covered": true, "employer": 5.9, "employee": 5.9 } }
+    },
+    {
+      "id": "EIS-02",
+      "input": {
+        "monthlySalary": 8000,
+        "age": 30,
+        "citizenship": "malaysian",
+        "payPeriod": "2026-11"
+      },
+      "expected": { "eis": { "covered": true, "employer": 11.9, "employee": 11.9 } }
+    },
+    {
+      "id": "EIS-03",
+      "input": {
+        "monthlySalary": 3000,
+        "age": 58,
+        "citizenship": "malaysian",
+        "eisPayableBefore57": false,
+        "payPeriod": "2026-11"
+      },
+      "expected": { "eis": { "covered": false, "employer": 0, "employee": 0 } }
+    },
+    {
+      "id": "EIS-04",
+      "input": {
+        "monthlySalary": 3000,
+        "age": 58,
+        "citizenship": "malaysian",
+        "eisPayableBefore57": true,
+        "payPeriod": "2026-11"
+      },
+      "expected": { "eis": { "covered": true, "employer": 5.9, "employee": 5.9 } }
+    }
+  ]
+}

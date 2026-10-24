@@ -102,8 +102,8 @@ malaysia-payroll-mcp/
 
 | Tool | Key inputs | Output |
 | --- | --- | --- |
-| `calculate_epf` | `monthlySalary`, `age`, `citizenship`, `payPeriod?` | employee and employer shares, citations, explanation |
-| `calculate_socso_eis` | `monthlySalary`, `age`, `citizenship`, `skbbkStatus`, `eisPayableBefore57?`, `payPeriod?` | SOCSO, SKBBK and EIS shares, band, citations, explanation |
+| `calculate_epf` | `monthlySalary`, `age`, `citizenship`, `registeredWithEpfBefore1Aug1998?`, `payPeriod?` | employee and employer shares, citations, explanation |
+| `calculate_socso_eis` | `monthlySalary`, `age`, `citizenship`, `skbbkStatus?` (default `covered`), `eisPayableBefore57?` (required from 57 to 59), `payPeriod?` | SOCSO, SKBBK and EIS shares, band, citations, explanation |
 | `calculate_mtd` | `monthlySalary`, `ytdSalary`, `ytdMtd`, `ytdEpf`, `maritalStatus`, `children`, `payPeriod?` | MTD amount, citations, explanation |
 | `calculate_net_pay` | union of the above | payslip breakdown and net pay, citations, explanation |
 
