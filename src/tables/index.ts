@@ -28,3 +28,16 @@ export function skbbkTableFor(payPeriod: string): SkbbkTable {
 export function eisTableFor(payPeriod: string): EisTable {
   return selectTable("eis", eisTables, payPeriod);
 }
+
+/** Any generated rate table. */
+export type RateTable = EpfTable | SocsoTable | SkbbkTable | EisTable;
+
+export type TableKind = RateTable["kind"];
+
+/** Every generated table, grouped by kind and oldest first within a kind. */
+export const allTables: readonly RateTable[] = [
+  ...epfTables,
+  ...socsoTables,
+  ...skbbkTables,
+  ...eisTables,
+];
