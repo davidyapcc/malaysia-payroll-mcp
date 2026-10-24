@@ -96,7 +96,7 @@ malaysia-payroll-mcp/
 
 **Hosted endpoint: no bodies in logs.** Salary and age are personal data under PDPA even when nothing is stored. The Worker logs only the tool name, status and latency, never request or response bodies, and it rate-limits per IP. The README has a short privacy note saying so.
 
-**A disclaimer in every response.** Each tool result has a short field: not tax advice, not LHDN-verified, fixed salaries only.
+**A disclaimer in every response.** Each tool result has a short field: not tax advice, not verified by KWSP, PERKESO or LHDN, fixed salaries only.
 
 ## Tool contract (sketch)
 

@@ -3,7 +3,7 @@ import * as z from "zod";
 import { PayrollInputError } from "../../core/errors.js";
 
 export const DISCLAIMER =
-  "Not tax or legal advice, and not LHDN-verified. Fixed monthly salaries only: overtime, commission, bonuses and arrears are not supported. Check results against the cited source.";
+  "Not tax or legal advice, and not verified by KWSP, PERKESO or LHDN. Fixed monthly salaries only: overtime, commission, bonuses and arrears are not supported. Check results against the cited source.";
 
 export const monthlySalary = z
   .number()

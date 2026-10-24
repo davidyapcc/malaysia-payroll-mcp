@@ -17,7 +17,7 @@ Every result echoes the pay period it used (the current month in Malaysia if you
 
 Every rate table the tools read is also a read-only resource, as JSON with amounts in sen: `payroll://tables/{kind}/{effectiveFrom}`, where `kind` is `epf`, `socso`, `skbbk` or `eis`. For example, `payroll://tables/epf/2025-10-01` is the EPF Third Schedule from 1 Oct 2025. `resources/list` shows them all, and the template completes both parts.
 
-> Not tax advice and not LHDN-verified. Fixed monthly salaries only: overtime, commission, bonuses and arrears aren't supported.
+> Not tax advice, and not verified by KWSP, PERKESO or LHDN. Fixed monthly salaries only: overtime, commission, bonuses and arrears aren't supported.
 
 ## Docs
 
