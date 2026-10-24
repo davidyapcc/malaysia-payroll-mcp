@@ -8,6 +8,8 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       exclude: ["src/entry/**"],
       reporter: ["text", "lcov"],
+      // Every line, branch and function is covered today; keep it that way.
+      thresholds: { 100: true },
     },
   },
 });
