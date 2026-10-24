@@ -13,6 +13,10 @@ An MCP server that works out Malaysian statutory payroll deductions (EPF, SOCSO,
 
 Every result echoes the pay period it used (the current month in Malaysia if you don't pass one), and carries citations, an explanation rendered from them, and a disclaimer.
 
+## Resources
+
+Every rate table the tools read is also a read-only resource, as JSON with amounts in sen: `payroll://tables/{kind}/{effectiveFrom}`, where `kind` is `epf`, `socso`, `skbbk` or `eis`. For example, `payroll://tables/epf/2025-10-01` is the EPF Third Schedule from 1 Oct 2025. `resources/list` shows them all, and the template completes both parts.
+
 > Not tax advice and not LHDN-verified. Fixed monthly salaries only: overtime, commission, bonuses and arrears aren't supported.
 
 ## Docs

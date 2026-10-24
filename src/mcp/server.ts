@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { VERSION } from "../version.js";
+import { registerTableResources } from "./resources.js";
 import { registerEpfTool } from "./tools/epf.js";
 import { registerSocsoEisTool } from "./tools/socso-eis.js";
 
@@ -13,5 +14,6 @@ export function createServer(): McpServer {
   );
   registerEpfTool(server);
   registerSocsoEisTool(server);
+  registerTableResources(server);
   return server;
 }
