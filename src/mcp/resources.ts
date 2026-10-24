@@ -26,7 +26,8 @@ function describe(table: RateTable): string {
 
 /**
  * Exposes every generated rate table read-only, so a client can show or check the exact band a
- * citation points at. The tables are the generated modules as they are: amounts stay in sen.
+ * citation points at. The tables are the generated modules as they are: amounts stay in sen, and
+ * each body says so in a top-level "unit", since a bare 1000 reads as RM1,000.
  */
 export function registerTableResources(server: McpServer): void {
   server.registerResource(
@@ -67,7 +68,13 @@ export function registerTableResources(server: McpServer): void {
       const table = allTables.find((t) => t.kind === kind && t.effectiveFrom === effectiveFrom);
       if (table === undefined) throw new ResourceNotFoundError(uri.href);
       return {
-        contents: [{ uri: uri.href, mimeType: MIME_TYPE, text: JSON.stringify(table, null, 2) }],
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: MIME_TYPE,
+            text: JSON.stringify({ unit: "sen", ...table }, null, 2),
+          },
+        ],
       };
     },
   );
