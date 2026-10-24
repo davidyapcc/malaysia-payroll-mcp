@@ -18,7 +18,9 @@ malaysia-payroll-mcp/
 │   ├── adr/
 │   ├── sources.md
 │   ├── golden-cases.md        # rationale for each case; the data lives in test/golden/
-│   └── data/*.csv             # rate tables: the source of truth (ADR 0003)
+│   └── data/                  # rate tables: the source of truth (ADR 0003)
+│       ├── *.csv              # <kind>-<description>-from-<YYYY-MM-01>.csv
+│       └── sources.json       # title, URL and retrieval date for each CSV
 ├── scripts/
 │   └── gen-tables.ts          # CSV -> src/tables/generated/*.ts
 ├── src/
@@ -31,7 +33,9 @@ malaysia-payroll-mcp/
 │   │   ├── net-pay.ts
 │   │   └── citation.ts        # Citation type, builders, explanation text
 │   ├── tables/
-│   │   ├── loader.ts          # pick a table by effective date
+│   │   ├── loader.ts          # pick a table by effective date (country-neutral)
+│   │   ├── types.ts           # row shapes of the generated tables, in sen
+│   │   ├── index.ts           # epfTableFor, socsoTableFor, eisTableFor
 │   │   └── generated/*.ts     # committed; CI checks they match the CSVs
 │   ├── mcp/
 │   │   ├── server.ts          # registers tools and resources
@@ -112,7 +116,7 @@ Resources: `payroll://tables/{kind}/{effectiveFrom}`, for example `payroll://tab
 | Layer | Tool | Runs | Gate |
 | --- | --- | --- | --- |
 | Lint, format and types | Biome, `tsc --noEmit` | every PR | required |
-| Generated tables up to date | `gen-tables` then `git diff --exit-code` | every PR | required |
+| Generated tables up to date | `pnpm gen:tables:check` (fails on any changed, missing or stale generated file) | every PR | required |
 | Golden unit tests | Vitest | every PR, Node 22, 24 and 26 | required, 100% coverage on `src/core` |
 | MCP contract | Vitest plus `InMemoryTransport` client | every PR | required |
 | Agent eval | `evals/run.ts`, cheapest Claude model that passes, temperature 0 | same-repo PRs that touch `src/` or `evals/` | required, pass threshold 28/30 |
