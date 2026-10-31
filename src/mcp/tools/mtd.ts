@@ -5,11 +5,8 @@ import { monthlySalary, payPeriod, resultTail, run } from "./shared.js";
 
 const rm = z.number().min(0).max(100_000_000);
 
-const inputSchema = z.object({
-  monthlySalary,
-  epfEmployee: rm.describe(
-    "The employee's EPF contribution this month in RM (the employee share from calculate_epf). 0 if none.",
-  ),
+/** The MTD inputs other than salary and EPF, shared with calculate_net_pay. */
+export const mtdFields = {
   taxCategory: z
     .union([z.literal(1), z.literal(2), z.literal(3)])
     .describe(
@@ -45,6 +42,14 @@ const inputSchema = z.object({
     .describe(
       `Required from February. Totals from earlier months of the same calendar year, including any previous employer's (all 0 for someone with no earlier income this year). Or "${SAME_SALARY_ALL_YEAR}" if every earlier month had this salary and EPF, no TP1 reliefs, and its MTD deducted.`,
     ),
+};
+
+const inputSchema = z.object({
+  monthlySalary,
+  epfEmployee: rm.describe(
+    "The employee's EPF contribution this month in RM (the employee share from calculate_epf). 0 if none.",
+  ),
+  ...mtdFields,
   payPeriod,
 });
 

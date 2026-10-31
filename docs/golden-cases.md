@@ -87,8 +87,12 @@ How the EPF cap runs through the year for MTD-01 and MTD-05:
 
 | ID | Input | Expected | Breakdown | Status |
 | --- | --- | --- | --- | --- |
-| NP-01 | Malaysian, 30, single, wages 5,000.00, pay period 2026-11, the same salary all year, SKBBK covered | **net 4,268.20** | EPF 550 + SOCSO 24.75 + SKBBK 37.15 + EIS 9.90 + MTD 110.00 | ✅ |
+| NP-01 | Malaysian, 30, single (tax category 1), wages 5,000.00, pay period 2026-11, the same salary all year, SKBBK covered | **net 4,268.20** | EPF 550 + SOCSO 24.75 + SKBBK 37.15 + EIS 9.90 + MTD 110.00 | ✅ |
 | NP-02 | Same as NP-01, but opted out of SKBBK | **net 4,305.35** | EPF 550 + SOCSO 24.75 + EIS 9.90 + MTD 110.00 | ✅ |
+| NP-03 | Same as NP-01, but aged 62 | **net 4,828.70** | EPF 0 (Part E) + SOCSO 0 (second category) + SKBBK 37.15 + EIS 0 (60 and over) + MTD 134.15. Employer: EPF 200 + SOCSO 61.90 | **Over 60.** No EPF relief, so P is 51,000.00 (band 50,001–70,000, tax 1,610.00), and the same-salary months before it deducted 1,341.70 in total | ✅ |
+| NP-04 | Same as NP-01, but a foreign worker (non-Malaysian, EPF from 1 Aug 1998), tax resident | **net 4,738.85** | EPF 100 (Part F, 2%) + SOCSO 0 (second category) + SKBBK 37.15 + EIS 0 (not covered) + MTD 124.00. Employer: EPF 100 + SOCSO 61.90 | **Foreign worker.** EPF relief 1,200 for the year, P 49,800.00, tax 1,488.00. MTD assumes the worker is tax resident (182 days or more in Malaysia) | ✅ |
+
+Each line comes from the calculator for it, so the components are the cases above (EPF-, SOC- and MTD- rows) and the tables they cite. Net pay is the monthly salary minus the five employee lines. The tool feeds the employee EPF share into MTD, so `epfEmployee` is never an input.
 
 ## Resolved questions (Oct 23, 2026)
 
@@ -114,4 +118,4 @@ For MTD-04, P = 35,000.07. LHDN's online calculator gives **16.70** a month and 
 - [x] Confirm per-share rounding above RM20,000 (EPF-09) from the Third Schedule's own bands (Oct 24, 2026). Emailing KWSP is optional.
 - [x] Phase 1: turn the EPF, SOCSO and EIS rows into `test/golden/cases.json` (Oct 24, 2026, roadmap 1.3).
 - [x] Phase 2: add the MTD rows, and LHDN's four worked examples, to `test/golden/cases.json` (Oct 31, 2026, roadmap 2.1). Inputs pass the employee EPF from the EPF table (for example 550.00 on 5,000.00), and MTD-05 passes the EPF actually paid (6,050.00) so the RM4,000 cap is exercised.
-- [ ] Phase 2: add the net pay rows (roadmap 2.2).
+- [x] Phase 2: add the net pay rows to `test/golden/cases.json` (Oct 31, 2026, roadmap 2.2), plus NP-03 (over 60) and NP-04 (foreign worker).

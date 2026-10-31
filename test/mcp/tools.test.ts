@@ -30,6 +30,7 @@ describe("tools/list", () => {
     expect(tools.map((t) => t.name).sort()).toEqual([
       "calculate_epf",
       "calculate_mtd",
+      "calculate_net_pay",
       "calculate_socso_eis",
     ]);
     for (const tool of tools) {
@@ -49,6 +50,14 @@ describe("tools/list", () => {
     ]);
     const mtd = tools.find((t) => t.name === "calculate_mtd");
     expect(mtd?.inputSchema.required).toEqual(["monthlySalary", "epfEmployee", "taxCategory"]);
+    const netPay = tools.find((t) => t.name === "calculate_net_pay");
+    expect(netPay?.inputSchema.required).toEqual([
+      "monthlySalary",
+      "age",
+      "citizenship",
+      "taxCategory",
+    ]);
+    expect(Object.keys(netPay?.inputSchema.properties ?? {})).not.toContain("epfEmployee");
   });
 });
 
@@ -143,5 +152,30 @@ describe("calculate_mtd", () => {
     });
     expect(result.isError).toBe(true);
     expect(text(result)).toContain("taxCategory");
+  });
+});
+
+describe("calculate_net_pay", () => {
+  it.each(golden.netPay.map((c) => [c.id, c] as const))("%s", async (_id, c) => {
+    const result = await client.callTool({ name: "calculate_net_pay", arguments: c.input });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ ...c.expected, disclaimer: DISCLAIMER });
+    expect(JSON.parse(text(result))).toEqual(result.structuredContent);
+  });
+
+  it("passes an error from any of the calculations back as a tool error", async () => {
+    const result = await client.callTool({
+      name: "calculate_net_pay",
+      arguments: {
+        monthlySalary: 3000,
+        age: 58,
+        citizenship: "malaysian",
+        taxCategory: 1,
+        yearToDate: "same_salary_all_year",
+        payPeriod: "2026-11",
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("eisPayableBefore57 is required");
   });
 });

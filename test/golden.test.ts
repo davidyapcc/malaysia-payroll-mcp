@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { calculateEpf, type EpfInput } from "../src/core/epf.js";
 import { PayrollInputError } from "../src/core/errors.js";
 import { calculateMtd, type MtdInput } from "../src/core/mtd.js";
+import { calculateNetPay, type NetPayInput } from "../src/core/net-pay.js";
 import { calculateSocsoEis, type SocsoEisInput } from "../src/core/socso-eis.js";
 import golden from "./golden/cases.json" with { type: "json" };
 
@@ -38,16 +39,21 @@ describe("golden cases: MTD", () => {
   run(golden.mtd as GoldenCase<MtdInput>[], calculateMtd);
 });
 
+describe("golden cases: net pay", () => {
+  run(golden.netPay as GoldenCase<NetPayInput>[], calculateNetPay);
+});
+
 describe("golden cases: completeness", () => {
   const doc = readFileSync(new URL("../docs/golden-cases.md", import.meta.url), "utf8");
-  const cases = [...golden.epf, ...golden.socsoEis, ...golden.mtd] as GoldenCase<unknown>[];
+  const cases = [
+    ...golden.epf,
+    ...golden.socsoEis,
+    ...golden.mtd,
+    ...golden.netPay,
+  ] as GoldenCase<unknown>[];
   const ids = cases.map((c) => c.id);
 
-  // Net pay cases are documented but join cases.json with calculate_net_pay (roadmap 2.2).
-  const pending = /^NP-/;
-  const documented = [...new Set(doc.match(/\b(?:[A-Z]{2,3}-\d{2}|LHDN-EX\d)\b/g))].filter(
-    (id) => !pending.test(id),
-  );
+  const documented = [...new Set(doc.match(/\b(?:[A-Z]{2,3}-\d{2}|LHDN-EX\d)\b/g))];
 
   it("runs every documented case, and only those", () => {
     expect([...ids].sort()).toEqual(documented.sort());

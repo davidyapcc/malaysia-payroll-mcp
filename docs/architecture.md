@@ -4,7 +4,7 @@ Status: design decided Oct 24, 2026, after an architecture review; partly built.
 
 The goal is statutory payroll numbers an agent can rely on: correct, traceable to an official source, and tested. Where goals conflict, choose what someone can see and verify: tests, provenance and a citation behind every number.
 
-**Built today:** `calculate_epf`, `calculate_socso_eis`, `calculate_mtd`, the rate tables and their resources, the stdio entry point, and CI for lint, types, generated tables and tests. Version 0.1.0 is tagged on GitHub. **Planned, not built:** everything marked "planned" below, including net pay, the agent eval, the hosted endpoint, npm publishing and the MCP Registry listing.
+**Built today:** `calculate_epf`, `calculate_socso_eis`, `calculate_mtd`, `calculate_net_pay`, the rate tables and their resources, the stdio entry point, and CI for lint, types, generated tables and tests. Version 0.1.0 is tagged on GitHub. **Planned, not built:** everything marked "planned" below, including the agent eval, the hosted endpoint, npm publishing and the MCP Registry listing.
 
 ## Repository layout
 
@@ -32,7 +32,7 @@ malaysia-payroll-mcp/
 │   │   ├── epf.ts
 │   │   ├── socso-eis.ts
 │   │   ├── mtd.ts
-│   │   ├── net-pay.ts         # planned
+│   │   ├── net-pay.ts         # chains the three calculators into a payslip
 │   │   └── citation.ts        # Citation type, builders, explanation text
 │   ├── tables/
 │   │   ├── loader.ts          # pick a table by effective date (country-neutral)
@@ -107,7 +107,7 @@ malaysia-payroll-mcp/
 | `calculate_epf` | `monthlySalary`, `age`, `citizenship`, `registeredWithEpfBefore1Aug1998?`, `payPeriod?` | employee and employer shares, citations, explanation |
 | `calculate_socso_eis` | `monthlySalary`, `age`, `citizenship`, `skbbkStatus?` (default `covered`), `eisPayableBefore57?` (required from 57 to 59), `payPeriod?` | SOCSO, SKBBK and EIS shares, band, citations, explanation |
 | `calculate_mtd` | `monthlySalary`, `epfEmployee` (from `calculate_epf`), `taxCategory` (LHDN's 1, 2 or 3), `children?`, `tp1Reliefs?`, `yearToDate?` (required from February: totals, or `same_salary_all_year`), `payPeriod?` | MTD amount, the formula's working (K1, K2, P, band), citations, explanation |
-| `calculate_net_pay` (planned) | union of the above | payslip breakdown and net pay, citations, explanation |
+| `calculate_net_pay` | the inputs above, except `epfEmployee` (taken from the EPF result) | deductions, net pay, employer contributions and cost, the rules each calculation used, every citation, explanation |
 
 Inputs and outputs are zod schemas, registered with `outputSchema` and returned as `structuredContent`, so a bad input gives the agent a clear validation error it can fix.
 
