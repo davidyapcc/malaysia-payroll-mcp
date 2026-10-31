@@ -59,15 +59,21 @@ describe("resources/list", () => {
 
 describe("resources/read", () => {
   it.each(allTables.map((t) => [`${t.kind}/${t.effectiveFrom}`, t] as const))(
-    "returns %s exactly as generated",
+    "returns %s as generated, labelled in sen",
     async (path, table) => {
-      expect(await readJson(`payroll://tables/${path}`)).toEqual(table);
+      expect(await readJson(`payroll://tables/${path}`)).toEqual({ unit: "sen", ...table });
     },
   );
 
   it("serves the table the tools pick for a pay period", async () => {
-    expect(await readJson("payroll://tables/epf/2025-10-01")).toEqual(epfTableFor("2026-10"));
-    expect(await readJson("payroll://tables/skbbk/2026-06-01")).toEqual(skbbkTableFor("2026-10"));
+    expect(await readJson("payroll://tables/epf/2025-10-01")).toEqual({
+      unit: "sen",
+      ...epfTableFor("2026-10"),
+    });
+    expect(await readJson("payroll://tables/skbbk/2026-06-01")).toEqual({
+      unit: "sen",
+      ...skbbkTableFor("2026-10"),
+    });
   });
 
   it.each([

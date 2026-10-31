@@ -1,6 +1,6 @@
 {
   "name": "malaysia-payroll-mcp",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "MCP server for Malaysian statutory payroll deductions (EPF, SOCSO, EIS, MTD/PCB), with a citation behind every number",
   "license": "MIT",
   "author": "David Yap",
