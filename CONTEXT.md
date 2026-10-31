@@ -16,6 +16,14 @@ _Avoid_: month, payroll date, pay date
 Whether an employee is covered by SOCSO's 24-hour protection scheme (Lindung 24 Jam) or has been opted out with PERKESO's approval. Everyone is covered by default.
 _Avoid_: opt-in, Lindung status
 
+**Tax category**:
+LHDN's grouping for MTD: 1 single, 2 married with a non-working spouse, 3 married with a working spouse, divorced, widowed, or single with an adopted child. It decides the spouse relief and which B value applies.
+_Avoid_: marital status (category 3 mixes several)
+
+**Year to date**:
+What was paid and deducted in earlier months of the same calendar year, including by a previous employer: salary, EPF, MTD and TP1 reliefs. MTD needs it from February onwards.
+_Avoid_: YTD (in prose), accumulated
+
 ## Rules and data
 
 **Rate table**:

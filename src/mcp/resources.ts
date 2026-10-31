@@ -14,6 +14,7 @@ const TITLES: Readonly<Record<TableKind, string>> = {
   socso: "SOCSO (Act 4) contribution table",
   skbbk: "SKBBK (Lindung 24 Jam) contribution table",
   eis: "EIS (Act 800) contribution table",
+  mtd: "MTD (PCB) tax schedule",
 };
 
 export function tableUri(table: RateTable): string {
@@ -21,7 +22,8 @@ export function tableUri(table: RateTable): string {
 }
 
 function describe(table: RateTable): string {
-  return `${TITLES[table.kind]} in effect from ${table.effectiveFrom}, transcribed from ${table.source.title}. Amounts are in sen; a band covers wages above "above" and up to and including "upTo".`;
+  const what = table.kind === "mtd" ? "chargeable income for the year (P)" : "wages";
+  return `${TITLES[table.kind]} in effect from ${table.effectiveFrom}, transcribed from ${table.source.title}. Amounts are in sen; a band covers ${what} above "above" and up to and including "upTo".`;
 }
 
 /**
@@ -58,7 +60,7 @@ export function registerTableResources(server: McpServer): void {
     {
       title: "Malaysian payroll rate table",
       description:
-        "A statutory contribution table (kind epf, socso, skbbk or eis) by the date it takes effect, as JSON. Amounts are in sen.",
+        "A statutory contribution table (kind epf, socso, skbbk or eis) or the MTD tax schedule (kind mtd), by the date it takes effect, as JSON. Amounts are in sen.",
       mimeType: MIME_TYPE,
     },
     (uri, variables) => {

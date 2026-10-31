@@ -113,4 +113,5 @@ For MTD-04, P = 35,000.07. LHDN's online calculator gives **16.70** a month and 
 - [x] Settle open questions 1 to 4 (Oct 23, 2026).
 - [x] Confirm per-share rounding above RM20,000 (EPF-09) from the Third Schedule's own bands (Oct 24, 2026). Emailing KWSP is optional.
 - [x] Phase 1: turn the EPF, SOCSO and EIS rows into `test/golden/cases.json` (Oct 24, 2026, roadmap 1.3).
-- [ ] Phase 2: add the MTD and net pay rows to `test/golden/cases.json`.
+- [x] Phase 2: add the MTD rows, and LHDN's four worked examples, to `test/golden/cases.json` (Oct 31, 2026, roadmap 2.1). Inputs pass the employee EPF from the EPF table (for example 550.00 on 5,000.00), and MTD-05 passes the EPF actually paid (6,050.00) so the RM4,000 cap is exercised.
+- [ ] Phase 2: add the net pay rows (roadmap 2.2).

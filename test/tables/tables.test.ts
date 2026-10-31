@@ -1,11 +1,14 @@
 // Checks the generated tables against the published rules they come from. The CSVs stay the
 // authority (ADR 0003); these catch transcription slips and band lookups that drift.
 import { describe, expect, it } from "vitest";
+import { reliefsFor } from "../../src/core/mtd.js";
+import { mtdTables } from "../../src/tables/generated/index.js";
 import {
   type EisBand,
   type EpfBand,
   eisTableFor,
   epfTableFor,
+  mtdTableFor,
   NoTableInEffectError,
   type SkbbkBand,
   type SocsoBand,
@@ -149,5 +152,36 @@ describe("EIS Act 800 table from 1 Oct 2024", () => {
 
   it("finds the golden EIS-01 band (row 34, RM3,000)", () => {
     expect(bandFor(table.bands, 300_000)).toMatchObject({ no: 34, employer: 590, employee: 590 });
+  });
+});
+
+describe("MTD schedule from the PCB 2026 specification", () => {
+  const table = mtdTableFor("2026-11");
+  const { bands } = table;
+
+  it("is the schedule in effect for 2026, and has its reliefs", () => {
+    expect(table).toMatchObject({ kind: "mtd", effectiveFrom: "2026-01-01" });
+    for (const t of mtdTables) expect(reliefsFor(t)).toBeDefined();
+    expect(() => mtdTableFor("2025-12")).toThrow(NoTableInEffectError);
+  });
+
+  it("runs from RM5,000 to an open top band at 30%", () => {
+    expect(bands[0]).toMatchObject({ above: 500_000, ratePercent: 1 });
+    expect(bands.at(-1)).toMatchObject({ above: 200_000_000, upTo: null, ratePercent: 30 });
+  });
+
+  // B is the tax on M, less the rebates (RM400 individual, RM400 more for a non-working spouse)
+  // that apply up to P = RM35,000. So each band's B is the previous band's B plus the tax across
+  // the previous band, and the rebate drops out once, at RM35,000.
+  it("has B values that follow on from band to band", () => {
+    for (let i = 1; i < bands.length; i++) {
+      const prev = bands[i - 1] as (typeof bands)[number];
+      const band = bands[i] as (typeof bands)[number];
+      const across = ((band.m - prev.m) * prev.ratePercent) / 100;
+      const rebate = band.m === 3_500_000 ? 1 : 0;
+      expect(band.bCat1And3, `row ${band.no}`).toBe(prev.bCat1And3 + across + 40_000 * rebate);
+      expect(band.bCat2, `row ${band.no}`).toBe(prev.bCat2 + across + 80_000 * rebate);
+    }
+    expect(bands[0]).toMatchObject({ bCat1And3: -40_000, bCat2: -80_000 });
   });
 });

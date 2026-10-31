@@ -9,13 +9,21 @@ import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { TableSource } from "../src/tables/loader.js";
-import type { EisBand, EpfBand, EpfPart, SkbbkBand, SocsoBand } from "../src/tables/types.js";
+import type {
+  EisBand,
+  EpfBand,
+  EpfPart,
+  MtdBand,
+  SkbbkBand,
+  SocsoBand,
+} from "../src/tables/types.js";
 
-const KINDS = ["epf", "socso", "skbbk", "eis"] as const;
+const KINDS = ["epf", "socso", "skbbk", "eis", "mtd"] as const;
 type Kind = (typeof KINDS)[number];
 
-const CSV_NAME = /^(epf|socso|skbbk|eis)-[a-z0-9-]+-from-(\d{4}-(?:0[1-9]|1[0-2])-01)\.csv$/;
+const CSV_NAME = /^(epf|socso|skbbk|eis|mtd)-[a-z0-9-]+-from-(\d{4}-(?:0[1-9]|1[0-2])-01)\.csv$/;
 const RM = /^\d+(?:\.\d{1,2})?$/;
+const SIGNED_RM = /^-?\d+(?:\.\d{1,2})?$/;
 const SEN = /^\d+$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TITLE_MAX = 80;
@@ -26,6 +34,7 @@ const HEADERS: Record<Kind, string> = {
     "no,wage_above_rm,wage_up_to_rm,cat1_employer_sen,cat1_employee_invalidity_sen,cat1_total_sen,cat2_employer_sen,cat2_total_sen",
   skbbk: "no,wage_above_rm,wage_up_to_rm,employee_sen",
   eis: "no,wage_above_rm,wage_up_to_rm,employer_sen,employee_sen,total_sen",
+  mtd: "no,p_above_rm,p_up_to_rm,m_rm,r_percent,b_cat1_cat3_rm,b_cat2_rm",
 };
 
 export interface GeneratedFile {
@@ -115,7 +124,7 @@ export function parseCsv(csv: string, text: string, source: TableSource): Parsed
   const match = CSV_NAME.exec(csv);
   if (match === null) {
     throw new TableDataError(
-      `${csv}: name must be <epf|socso|skbbk|eis>-<description>-from-<YYYY-MM-01>.csv.`,
+      `${csv}: name must be <epf|socso|skbbk|eis|mtd>-<description>-from-<YYYY-MM-01>.csv.`,
     );
   }
   const kind = match[1] as Kind;
@@ -140,6 +149,8 @@ export function parseCsv(csv: string, text: string, source: TableSource): Parsed
       return { ...parsed, body: renderBanded(meta, "SkbbkTable", "bands", parseSkbbk(rows)) };
     case "eis":
       return { ...parsed, body: renderBanded(meta, "EisTable", "bands", parseEis(rows)) };
+    case "mtd":
+      return { ...parsed, body: renderBanded(meta, "MtdTable", "bands", parseMtd(rows)) };
   }
 }
 
@@ -172,6 +183,18 @@ class Row {
   rm(index: number): number {
     const value = this.cell(index);
     if (!RM.test(value)) this.fail(`"${value}" is not a ringgit amount.`);
+    return this.rmOf(value);
+  }
+
+  /** Like `rm`, but may be negative (MTD's B values include the rebates). */
+  signedRm(index: number): number {
+    const value = this.cell(index);
+    if (!SIGNED_RM.test(value)) this.fail(`"${value}" is not a ringgit amount.`);
+    const sen = this.rmOf(value.replace(/^-/, ""));
+    return value.startsWith("-") ? -sen : sen;
+  }
+
+  private rmOf(value: string): number {
     const [whole, cents = ""] = value.split(".");
     return Number(whole) * 100 + Number(cents.padEnd(2, "0"));
   }
@@ -189,12 +212,16 @@ class Row {
   }
 }
 
-/** Checks that bands start at 0, follow on with no gap or overlap, and only the last is open. */
+/**
+ * Checks that bands start at `start` (0 unless the table says otherwise), follow on with no gap
+ * or overlap, and only the last is open.
+ */
 function checkBands(
   rows: readonly Row[],
   bands: readonly { above: number; upTo: number | null }[],
+  start = 0,
 ) {
-  let previous = 0;
+  let previous = start;
   bands.forEach((band, i) => {
     const row = rows[i] as Row;
     if (band.above !== previous) {
@@ -314,6 +341,34 @@ function parseEis(rows: readonly Row[]): EisBand[] {
   return bands;
 }
 
+/** LHDN's schedule starts above RM5,000: below that there is no tax band and no MTD. */
+const MTD_START = 500_000;
+
+function parseMtd(rows: readonly Row[]): MtdBand[] {
+  const bands = rows.map((row): MtdBand => {
+    row.expectCells(7);
+    const band: MtdBand = {
+      no: row.int(0),
+      // The spec prints bands as RM5,001 to RM20,000 on whole-ringgit P; store (5,000, 20,000].
+      above: row.rm(1),
+      upTo: row.rmOrOpen(2),
+      m: row.rm(3),
+      ratePercent: row.int(4),
+      bCat1And3: row.signedRm(5),
+      bCat2: row.signedRm(6),
+    };
+    if (band.m !== band.above) row.fail("M must equal the band's lower limit.");
+    if (band.ratePercent > 100) row.fail(`rate ${band.ratePercent}% is above 100%.`);
+    return band;
+  });
+  checkNumbering(
+    rows,
+    bands.map((band) => band.no),
+  );
+  checkBands(rows, bands, MTD_START);
+  return bands;
+}
+
 // Rendering. Output must match what `biome format` would produce, or `pnpm lint` fails.
 
 interface Meta {
@@ -398,6 +453,7 @@ const TABLE_TYPES: Record<Kind, string> = {
   socso: "SocsoTable",
   skbbk: "SkbbkTable",
   eis: "EisTable",
+  mtd: "MtdTable",
 };
 
 function renderIndex(tables: readonly Parsed[]): string {

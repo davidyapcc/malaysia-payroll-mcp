@@ -1,6 +1,6 @@
-import { eisTables, epfTables, skbbkTables, socsoTables } from "./generated/index.js";
+import { eisTables, epfTables, mtdTables, skbbkTables, socsoTables } from "./generated/index.js";
 import { selectTable } from "./loader.js";
-import type { EisTable, EpfTable, SkbbkTable, SocsoTable } from "./types.js";
+import type { EisTable, EpfTable, MtdTable, SkbbkTable, SocsoTable } from "./types.js";
 
 export { NoTableInEffectError } from "./loader.js";
 export type * from "./types.js";
@@ -29,8 +29,13 @@ export function eisTableFor(payPeriod: string): EisTable {
   return selectTable("eis", eisTables, payPeriod);
 }
 
+/** LHDN's MTD (PCB) tax schedule in effect for a pay period (YYYY-MM). */
+export function mtdTableFor(payPeriod: string): MtdTable {
+  return selectTable("mtd", mtdTables, payPeriod);
+}
+
 /** Any generated rate table. */
-export type RateTable = EpfTable | SocsoTable | SkbbkTable | EisTable;
+export type RateTable = EpfTable | SocsoTable | SkbbkTable | EisTable | MtdTable;
 
 export type TableKind = RateTable["kind"];
 
@@ -40,4 +45,5 @@ export const allTables: readonly RateTable[] = [
   ...socsoTables,
   ...skbbkTables,
   ...eisTables,
+  ...mtdTables,
 ];

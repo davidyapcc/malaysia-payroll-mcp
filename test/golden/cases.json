@@ -1,5 +1,5 @@
 {
-  "$comment": "Golden cases: the source of truth for expected results. IDs match docs/golden-cases.md, which keeps the reasoning behind each case. Amounts are in RM. MTD and net pay cases join in Phase 2.",
+  "$comment": "Golden cases: the source of truth for expected results. IDs match docs/golden-cases.md, which keeps the reasoning behind each case. Amounts are in RM. Net pay cases join in Phase 2 (roadmap 2.2).",
   "epf": [
     {
       "id": "EPF-01",
@@ -9,7 +9,12 @@
         "citizenship": "malaysian",
         "payPeriod": "2026-11"
       },
-      "expected": { "part": "A", "employer": 0, "employee": 0, "total": 0 }
+      "expected": {
+        "part": "A",
+        "employer": 0,
+        "employee": 0,
+        "total": 0
+      }
     },
     {
       "id": "EPF-02",
@@ -19,7 +24,12 @@
         "citizenship": "malaysian",
         "payPeriod": "2026-11"
       },
-      "expected": { "part": "A", "employer": 390, "employee": 330, "total": 720 }
+      "expected": {
+        "part": "A",
+        "employer": 390,
+        "employee": 330,
+        "total": 720
+      }
     },
     {
       "id": "EPF-03",
@@ -29,7 +39,12 @@
         "citizenship": "malaysian",
         "payPeriod": "2026-11"
       },
-      "expected": { "part": "A", "employer": 650, "employee": 550, "total": 1200 }
+      "expected": {
+        "part": "A",
+        "employer": 650,
+        "employee": 550,
+        "total": 1200
+      }
     },
     {
       "id": "EPF-04",
@@ -39,7 +54,12 @@
         "citizenship": "malaysian",
         "payPeriod": "2026-11"
       },
-      "expected": { "part": "A", "employer": 612, "employee": 561, "total": 1173 }
+      "expected": {
+        "part": "A",
+        "employer": 612,
+        "employee": 561,
+        "total": 1173
+      }
     },
     {
       "id": "EPF-05",
@@ -49,7 +69,12 @@
         "citizenship": "malaysian",
         "payPeriod": "2026-11"
       },
-      "expected": { "part": "A", "employer": 3000, "employee": 2750, "total": 5750 }
+      "expected": {
+        "part": "A",
+        "employer": 3000,
+        "employee": 2750,
+        "total": 5750
+      }
     },
     {
       "id": "EPF-09",
@@ -59,7 +84,12 @@
         "citizenship": "malaysian",
         "payPeriod": "2026-11"
       },
-      "expected": { "part": "A", "employer": 3001, "employee": 2751, "total": 5752 }
+      "expected": {
+        "part": "A",
+        "employer": 3001,
+        "employee": 2751,
+        "total": 5752
+      }
     },
     {
       "id": "EPF-06",
@@ -69,7 +99,12 @@
         "citizenship": "permanent_resident",
         "payPeriod": "2026-11"
       },
-      "expected": { "part": "C", "employer": 293, "employee": 248, "total": 541 }
+      "expected": {
+        "part": "C",
+        "employer": 293,
+        "employee": 248,
+        "total": 541
+      }
     },
     {
       "id": "EPF-07",
@@ -79,7 +114,12 @@
         "citizenship": "malaysian",
         "payPeriod": "2026-11"
       },
-      "expected": { "part": "E", "employer": 120, "employee": 0, "total": 120 }
+      "expected": {
+        "part": "E",
+        "employer": 120,
+        "employee": 0,
+        "total": 120
+      }
     },
     {
       "id": "EPF-08",
@@ -89,7 +129,12 @@
         "citizenship": "non_malaysian",
         "payPeriod": "2026-11"
       },
-      "expected": { "part": "F", "employer": 70, "employee": 70, "total": 140 }
+      "expected": {
+        "part": "F",
+        "employer": 70,
+        "employee": 70,
+        "total": 140
+      }
     }
   ],
   "socsoEis": [
@@ -103,8 +148,14 @@
         "payPeriod": "2026-11"
       },
       "expected": {
-        "socso": { "category": "first", "employer": 51.65, "employee": 14.75 },
-        "skbbk": { "employee": 22.15 }
+        "socso": {
+          "category": "first",
+          "employer": 51.65,
+          "employee": 14.75
+        },
+        "skbbk": {
+          "employee": 22.15
+        }
       }
     },
     {
@@ -117,8 +168,14 @@
         "payPeriod": "2026-11"
       },
       "expected": {
-        "socso": { "category": "first", "employer": 51.65, "employee": 14.75 },
-        "skbbk": { "employee": 0 }
+        "socso": {
+          "category": "first",
+          "employer": 51.65,
+          "employee": 14.75
+        },
+        "skbbk": {
+          "employee": 0
+        }
       }
     },
     {
@@ -131,8 +188,14 @@
         "payPeriod": "2026-11"
       },
       "expected": {
-        "socso": { "category": "second", "employer": 36.9, "employee": 0 },
-        "skbbk": { "employee": 0 }
+        "socso": {
+          "category": "second",
+          "employer": 36.9,
+          "employee": 0
+        },
+        "skbbk": {
+          "employee": 0
+        }
       }
     },
     {
@@ -145,8 +208,14 @@
         "payPeriod": "2026-11"
       },
       "expected": {
-        "socso": { "category": "first", "employer": 104.15, "employee": 29.75 },
-        "skbbk": { "employee": 44.65 }
+        "socso": {
+          "category": "first",
+          "employer": 104.15,
+          "employee": 29.75
+        },
+        "skbbk": {
+          "employee": 44.65
+        }
       }
     },
     {
@@ -170,8 +239,14 @@
         "payPeriod": "2026-05"
       },
       "expected": {
-        "socso": { "category": "first", "employer": 51.65, "employee": 14.75 },
-        "skbbk": { "employee": 0 }
+        "socso": {
+          "category": "first",
+          "employer": 51.65,
+          "employee": 14.75
+        },
+        "skbbk": {
+          "employee": 0
+        }
       }
     },
     {
@@ -184,9 +259,19 @@
         "payPeriod": "2026-11"
       },
       "expected": {
-        "socso": { "category": "second", "employer": 36.9, "employee": 0 },
-        "skbbk": { "employee": 22.15 },
-        "eis": { "covered": false, "employer": 0, "employee": 0 }
+        "socso": {
+          "category": "second",
+          "employer": 36.9,
+          "employee": 0
+        },
+        "skbbk": {
+          "employee": 22.15
+        },
+        "eis": {
+          "covered": false,
+          "employer": 0,
+          "employee": 0
+        }
       }
     },
     {
@@ -197,7 +282,13 @@
         "citizenship": "malaysian",
         "payPeriod": "2026-11"
       },
-      "expected": { "eis": { "covered": true, "employer": 5.9, "employee": 5.9 } }
+      "expected": {
+        "eis": {
+          "covered": true,
+          "employer": 5.9,
+          "employee": 5.9
+        }
+      }
     },
     {
       "id": "EIS-02",
@@ -207,7 +298,13 @@
         "citizenship": "malaysian",
         "payPeriod": "2026-11"
       },
-      "expected": { "eis": { "covered": true, "employer": 11.9, "employee": 11.9 } }
+      "expected": {
+        "eis": {
+          "covered": true,
+          "employer": 11.9,
+          "employee": 11.9
+        }
+      }
     },
     {
       "id": "EIS-03",
@@ -218,7 +315,13 @@
         "eisPayableBefore57": false,
         "payPeriod": "2026-11"
       },
-      "expected": { "eis": { "covered": false, "employer": 0, "employee": 0 } }
+      "expected": {
+        "eis": {
+          "covered": false,
+          "employer": 0,
+          "employee": 0
+        }
+      }
     },
     {
       "id": "EIS-04",
@@ -229,7 +332,204 @@
         "eisPayableBefore57": true,
         "payPeriod": "2026-11"
       },
-      "expected": { "eis": { "covered": true, "employer": 5.9, "employee": 5.9 } }
+      "expected": {
+        "eis": {
+          "covered": true,
+          "employer": 5.9,
+          "employee": 5.9
+        }
+      }
+    }
+  ],
+  "mtd": [
+    {
+      "id": "LHDN-EX1",
+      "input": {
+        "monthlySalary": 5500,
+        "epfEmployee": 605,
+        "taxCategory": 3,
+        "children": 3,
+        "payPeriod": "2026-01"
+      },
+      "expected": {
+        "mtd": 110,
+        "working": {
+          "epfEachRemainingMonth": 308.63,
+          "chargeableIncome": 47000.07
+        }
+      }
+    },
+    {
+      "id": "LHDN-EX2",
+      "input": {
+        "monthlySalary": 5500,
+        "epfEmployee": 605,
+        "taxCategory": 3,
+        "children": 3,
+        "yearToDate": {
+          "remuneration": 5500,
+          "epf": 605,
+          "mtd": 110
+        },
+        "payPeriod": "2026-02"
+      },
+      "expected": {
+        "mtd": 110,
+        "working": {
+          "epfEachRemainingMonth": 279,
+          "chargeableIncome": 47000
+        }
+      }
+    },
+    {
+      "id": "LHDN-EX3",
+      "input": {
+        "monthlySalary": 5500,
+        "epfEmployee": 605,
+        "taxCategory": 3,
+        "children": 3,
+        "tp1Reliefs": 300,
+        "yearToDate": {
+          "remuneration": 11000,
+          "epf": 1210,
+          "mtd": 220
+        },
+        "payPeriod": "2026-03"
+      },
+      "expected": {
+        "mtd": 108.2,
+        "working": {
+          "epfEachRemainingMonth": 242.77,
+          "chargeableIncome": 46700.07
+        }
+      }
+    },
+    {
+      "id": "LHDN-EX4",
+      "input": {
+        "monthlySalary": 5500,
+        "epfEmployee": 605,
+        "taxCategory": 3,
+        "children": 3,
+        "tp1Reliefs": 300,
+        "yearToDate": {
+          "remuneration": 16500,
+          "epf": 1815,
+          "mtd": 328.2,
+          "tp1Reliefs": 300
+        },
+        "payPeriod": "2026-04"
+      },
+      "expected": {
+        "mtd": 106.2,
+        "working": {
+          "epfEachRemainingMonth": 197.5,
+          "chargeableIncome": 46400
+        }
+      }
+    },
+    {
+      "id": "MTD-01",
+      "input": {
+        "monthlySalary": 5000,
+        "epfEmployee": 550,
+        "taxCategory": 1,
+        "payPeriod": "2026-01"
+      },
+      "expected": {
+        "mtd": 110,
+        "working": {
+          "epfThisMonth": 550,
+          "epfEachRemainingMonth": 313.63,
+          "chargeableIncome": 47000.07,
+          "taxBand": {
+            "above": 35000,
+            "upTo": 50000
+          }
+        }
+      }
+    },
+    {
+      "id": "MTD-02",
+      "input": {
+        "monthlySalary": 9500,
+        "epfEmployee": 1045,
+        "taxCategory": 2,
+        "children": 2,
+        "payPeriod": "2026-01"
+      },
+      "expected": {
+        "mtd": 672.5,
+        "working": {
+          "epfThisMonth": 1045,
+          "epfEachRemainingMonth": 268.63,
+          "chargeableIncome": 93000.07,
+          "taxBand": {
+            "above": 70000,
+            "upTo": 100000
+          }
+        }
+      }
+    },
+    {
+      "id": "MTD-03",
+      "input": {
+        "monthlySalary": 2500,
+        "epfEmployee": 275,
+        "taxCategory": 1,
+        "payPeriod": "2026-01"
+      },
+      "expected": {
+        "mtd": 0,
+        "working": {
+          "chargeableIncome": 17700
+        }
+      }
+    },
+    {
+      "id": "MTD-04",
+      "input": {
+        "monthlySalary": 4000,
+        "epfEmployee": 440,
+        "taxCategory": 1,
+        "payPeriod": "2026-01"
+      },
+      "expected": {
+        "mtd": 16.7,
+        "working": {
+          "chargeableIncome": 35000.07,
+          "taxForYear": 200,
+          "taxBand": {
+            "above": 20000,
+            "upTo": 35000,
+            "m": 20000,
+            "ratePercent": 3,
+            "b": -250
+          }
+        }
+      }
+    },
+    {
+      "id": "MTD-05",
+      "input": {
+        "monthlySalary": 5000,
+        "epfEmployee": 550,
+        "taxCategory": 1,
+        "yearToDate": {
+          "remuneration": 55000,
+          "epf": 6050,
+          "mtd": 1210
+        },
+        "payPeriod": "2026-12"
+      },
+      "expected": {
+        "mtd": 110,
+        "working": {
+          "monthsRemaining": 0,
+          "epfThisMonth": 0,
+          "chargeableIncome": 47000
+        }
+      }
     }
   ]
 }

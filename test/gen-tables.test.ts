@@ -86,6 +86,31 @@ describe("gen-tables", () => {
     });
   });
 
+  describe("MTD schedule", () => {
+    const header = "no,p_above_rm,p_up_to_rm,m_rm,r_percent,b_cat1_cat3_rm,b_cat2_rm";
+    const csv = "mtd-test-from-2026-01-01.csv";
+    const mtd = (...rows: string[]) => [header, ...rows].join("\n");
+    const first = "1,5000,20000,5000,1,-400,-800";
+
+    it("starts at RM5,000 and keeps negative B values", () => {
+      const { body } = parseCsv(csv, mtd(first, "2,20000,,20000,3,-250.50,-650"), SOURCE);
+      expect(body).toContain("bCat1And3: -40000,");
+      expect(body).toContain("bCat1And3: -25050,");
+      expect(body).toContain("upTo: null,");
+    });
+
+    it.each([
+      [["1,0,20000,0,1,-400,-800"], "band starts above 0 sen, expected 500000"],
+      [["1,5000,20000,4000,1,-400,-800"], "M must equal the band's lower limit"],
+      [["1,5000,20000,5000,101,-400,-800"], "rate 101% is above 100%"],
+      [["1,5000,20000,5000,1,--400,-800"], '"--400" is not a ringgit amount'],
+      [["1,5000,20000,5000,1,-400"], "expected 7 cells, got 6"],
+      [[first, "3,20000,,20000,3,-250,-650"], "row number 3, expected 2"],
+    ])("rejects %j", (rows, message) => {
+      expect(parseError(csv, mtd(...rows))).toContain(message);
+    });
+  });
+
   describe("sources.json", () => {
     let dir: string | undefined;
     afterEach(() => {
