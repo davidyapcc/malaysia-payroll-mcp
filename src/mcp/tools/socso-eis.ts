@@ -3,22 +3,26 @@ import * as z from "zod";
 import { calculateSocsoEis } from "../../core/socso-eis.js";
 import { age, citizenship, monthlySalary, payPeriod, resultTail, run } from "./shared.js";
 
+export const skbbkStatus = z
+  .enum(["covered", "opted_out"])
+  .optional()
+  .describe(
+    "SOCSO's 24-hour protection scheme (SKBBK, Lindung 24 Jam). Everyone is covered by default; opted_out only if PERKESO approved the employee's opt-out, which foreign workers can't do. Defaults to covered.",
+  );
+
+export const eisPayableBefore57 = z
+  .boolean()
+  .optional()
+  .describe(
+    "Required for employees aged 57 to 59: true if EIS contributions were payable for them before they turned 57 (even if never paid). Can't be worked out from age.",
+  );
+
 const inputSchema = z.object({
   monthlySalary,
   age,
   citizenship,
-  skbbkStatus: z
-    .enum(["covered", "opted_out"])
-    .optional()
-    .describe(
-      "SOCSO's 24-hour protection scheme (SKBBK, Lindung 24 Jam). Everyone is covered by default; opted_out only if PERKESO approved the employee's opt-out, which foreign workers can't do. Defaults to covered.",
-    ),
-  eisPayableBefore57: z
-    .boolean()
-    .optional()
-    .describe(
-      "Required for employees aged 57 to 59: true if EIS contributions were payable for them before they turned 57 (even if never paid). Can't be worked out from age.",
-    ),
+  skbbkStatus,
+  eisPayableBefore57,
   payPeriod,
 });
 

@@ -30,7 +30,13 @@ export interface MtdInput {
   readonly monthlySalary: number;
   /** K1 before the cap: the employee's EPF contribution this month, in RM (from calculate_epf). */
   readonly epfEmployee: number;
-  readonly taxCategory: TaxCategory;
+  /**
+   * Defaults to true. False for an employee not resident, or not known to be resident, in Malaysia
+   * (usually under 182 days in the year): a flat 30% with no reliefs (spec, Section D.a).
+   */
+  readonly taxResident?: boolean | undefined;
+  /** Required for a resident. Ignored for a non-resident. */
+  readonly taxCategory?: TaxCategory | undefined;
   /** C: qualifying children at RM2,000 each. Must be 0 in category 1. */
   readonly children?: number | undefined;
   /** LP1: other TP1 reliefs claimed through payroll this month, in RM. */
@@ -48,14 +54,16 @@ export interface MtdInput {
 export interface MtdResult {
   readonly payPeriod: string;
   readonly monthlySalary: number;
-  readonly taxCategory: TaxCategory;
+  readonly taxResident: boolean;
+  /** null for a non-resident, who has no tax category. */
+  readonly taxCategory: TaxCategory | null;
   readonly children: number;
   /** RM, deducted from pay. 0 when the formula gives less than RM10. */
   readonly mtd: number;
-  /** The year-to-date figures used, after any same-salary assumption. RM. */
-  readonly yearToDate: Required<MtdYearToDate>;
-  /** The formula's working, in RM, so a payroll officer can check it line by line. */
-  readonly working: {
+  /** The year-to-date figures used, after any same-salary assumption. RM. Residents only. */
+  readonly yearToDate?: Required<MtdYearToDate>;
+  /** The formula's working, in RM, so a payroll officer can check it line by line. Residents only. */
+  readonly working?: {
     /** n: months left in the year after this one. */
     readonly monthsRemaining: number;
     /** K1 after the RM4,000 cap. */
@@ -108,6 +116,15 @@ export function reliefsFor(table: MtdTable): Reliefs {
 
 /** No MTD is deducted when the formula gives less than this (spec, Section E item 3). */
 const MINIMUM_SEN = 1_000;
+
+/** The flat rate for a non-resident, in percent (spec, Section D.a). */
+const NON_RESIDENT_RATE_PERCENT = 30;
+
+/** Truncate to the sen, round up to the next 5 sen, and drop anything under RM10 (Section E). */
+function roundMtd(sen: number): number {
+  const rounded = Math.ceil(Math.floor(sen) / 5) * 5;
+  return rounded < MINIMUM_SEN ? 0 : rounded;
+}
 
 interface Ytd {
   readonly remuneration: number;
@@ -162,9 +179,7 @@ function compute(table: MtdTable, month: Month, ytd: Ytd): Computed {
   const tax = Math.floor(((p - band.m) * band.ratePercent) / 100) + b;
   const owed = tax - ytd.mtd;
   if (owed <= 0) return { mtd: 0, n, k1, k2, p, tax, band };
-  // Truncate to the sen, then round up to the next 5 sen (spec, Section E items 1 and 2).
-  const rounded = Math.ceil(Math.floor(owed / (n + 1)) / 5) * 5;
-  return { mtd: rounded < MINIMUM_SEN ? 0 : rounded, n, k1, k2, p, tax, band };
+  return { mtd: roundMtd(owed / (n + 1)), n, k1, k2, p, tax, band };
 }
 
 /** Earlier months under "same_salary_all_year": each one's MTD, worked out in turn. */
@@ -195,9 +210,15 @@ export function calculateMtd(input: MtdInput, options: { now?: Date } = {}): Mtd
   const tp1Reliefs = toSen(input.tp1Reliefs ?? 0);
   const payPeriod = resolvePayPeriod(input.payPeriod, options.now);
   const table = tableInEffect(mtdTableFor, payPeriod);
+  if (input.taxResident === false) return nonResident(salary, payPeriod, table);
   const month = Number(payPeriod.slice(5));
   const children = input.children ?? 0;
   const category = input.taxCategory;
+  if (category === undefined) {
+    throw new PayrollInputError(
+      "taxCategory is required for a resident employee: 1 single, 2 married with a non-working spouse, 3 otherwise. For a non-resident, set taxResident to false.",
+    );
+  }
   if (!Number.isInteger(children) || children < 0) {
     throw new PayrollInputError(`children must be a whole number of 0 or more, got ${children}.`);
   }
@@ -251,6 +272,7 @@ export function calculateMtd(input: MtdInput, options: { now?: Date } = {}): Mtd
   return {
     payPeriod,
     monthlySalary: toRm(salary),
+    taxResident: true,
     taxCategory: category,
     children,
     mtd: toRm(c.mtd),
@@ -278,6 +300,33 @@ export function calculateMtd(input: MtdInput, options: { now?: Date } = {}): Mtd
             },
           }),
     },
+    citations,
+    explanation: renderExplanation(citations),
+  };
+}
+
+/**
+ * A non-resident pays a flat 30% of the month's remuneration, with no reliefs, rebates or EPF
+ * relief, and no year-to-date working. Section E's rounding still applies.
+ */
+function nonResident(salary: number, payPeriod: string, table: MtdTable): MtdResult {
+  const mtd = roundMtd((salary * NON_RESIDENT_RATE_PERCENT) / 100);
+  const citation: Citation = {
+    item: "MTD",
+    employee: toRm(mtd),
+    employer: 0,
+    rule: `Non-resident (not resident, or not known to be resident, in Malaysia): a flat ${NON_RESIDENT_RATE_PERCENT}% of the remuneration, with no reliefs or rebates (Section D.a): ${NON_RESIDENT_RATE_PERCENT}% of ${formatRm(salary)}, truncated to the sen and rounded up to the next 5 sen. Under RM10, nothing is deducted.`,
+    source: table.source,
+    effectiveFrom: table.effectiveFrom,
+  };
+  const citations = [citation];
+  return {
+    payPeriod,
+    monthlySalary: toRm(salary),
+    taxResident: false,
+    taxCategory: null,
+    children: 0,
+    mtd: toRm(mtd),
     citations,
     explanation: renderExplanation(citations),
   };

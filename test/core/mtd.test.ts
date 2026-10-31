@@ -34,20 +34,20 @@ describe("calculateMtd", () => {
   it("deducts nothing when the formula gives less than RM10", () => {
     // P 30,200.07: tax for the year 56.00, so 4.66 a month, rounded to 4.70.
     const result = calculateMtd({ ...single, monthlySalary: 3600, epfEmployee: 396 });
-    expect(result.working.taxForYear).toBe(56);
+    expect(result.working?.taxForYear).toBe(56);
     expect(result.mtd).toBe(0);
   });
 
   it("has no tax band when P is RM5,000 or less, even below zero", () => {
     const low = calculateMtd({ ...single, monthlySalary: 1000, epfEmployee: 110 });
     expect(low.working).toMatchObject({ chargeableIncome: 1680, taxForYear: 0 });
-    expect(low.working.taxBand).toBeUndefined();
+    expect(low.working?.taxBand).toBeUndefined();
     expect(low.mtd).toBe(0);
     expect(low.citations[0]?.tableRow).toBeUndefined();
     expect(low.explanation).toContain("below the first tax band");
 
     const negative = calculateMtd({ ...single, monthlySalary: 100, epfEmployee: 11 });
-    expect(negative.working.chargeableIncome).toBe(-7932);
+    expect(negative.working?.chargeableIncome).toBe(-7932);
     expect(negative.explanation).toContain("= −RM7,932.00");
   });
 
@@ -67,9 +67,11 @@ describe("calculateMtd", () => {
   it("takes the spouse relief and the category 2 B in category 2", () => {
     const cat2 = calculateMtd({ ...single, monthlySalary: 3000, epfEmployee: 330, taxCategory: 2 });
     const cat3 = calculateMtd({ ...single, monthlySalary: 3000, epfEmployee: 330, taxCategory: 3 });
-    expect(cat3.working.chargeableIncome - cat2.working.chargeableIncome).toBe(4000);
-    expect(cat2.working.taxBand?.b).toBe(-800);
-    expect(cat3.working.taxBand?.b).toBe(-250);
+    expect(Number(cat3.working?.chargeableIncome) - Number(cat2.working?.chargeableIncome)).toBe(
+      4000,
+    );
+    expect(cat2.working?.taxBand?.b).toBe(-800);
+    expect(cat3.working?.taxBand?.b).toBe(-250);
   });
 
   describe("same_salary_all_year", () => {
@@ -96,12 +98,12 @@ describe("calculateMtd", () => {
         yearToDate: "same_salary_all_year",
         payPeriod: "2026-06",
       });
-      expect(result.yearToDate.mtd).toBe(0);
+      expect(result.yearToDate?.mtd).toBe(0);
     });
 
     it("means no earlier months in January", () => {
       const result = calculateMtd({ ...single, yearToDate: "same_salary_all_year" });
-      expect(result.yearToDate.remuneration).toBe(0);
+      expect(result.yearToDate?.remuneration).toBe(0);
       expect(result.mtd).toBe(110);
     });
   });
@@ -113,6 +115,38 @@ describe("calculateMtd", () => {
       payPeriod: "2026-11",
     });
     expect(result.mtd).toBe(0);
+  });
+
+  describe("non-resident", () => {
+    const nonResident: MtdInput = {
+      monthlySalary: 3000,
+      epfEmployee: 0,
+      taxResident: false,
+      payPeriod: "2026-11",
+    };
+
+    it("is a flat 30% with no working, year to date or tax category", () => {
+      const result = calculateMtd({ ...nonResident, taxCategory: 2, children: 3 });
+      expect(result).toMatchObject({
+        mtd: 900,
+        taxResident: false,
+        taxCategory: null,
+        children: 0,
+      });
+      expect(result).not.toHaveProperty("working");
+      expect(result).not.toHaveProperty("yearToDate");
+      expect(result.citations[0]?.rule).toContain("30% of RM3,000.00");
+      expect(result.citations[0]).not.toHaveProperty("tableRow");
+    });
+
+    it.each([
+      [1000.1, 300.05], // 300.03 rounds up to the next 5 sen
+      [1000.03, 300], // 300.009 truncates to 300.00
+      [33.33, 10], // 9.999 truncates to 9.99, which rounds up to 10.00, so it is deducted
+      [33.1, 0], // 9.93 rounds up to 9.95, under RM10, so nothing is deducted
+    ])("rounds %d to %d", (monthlySalary, mtd) => {
+      expect(calculateMtd({ ...nonResident, monthlySalary }).mtd).toBe(mtd);
+    });
   });
 
   it("defaults the pay period to the current month in Malaysia", () => {
@@ -129,6 +163,7 @@ describe("calculateMtd", () => {
     [{ ...single, payPeriod: "2025-12" }, "No mtd rate table is in effect for pay period 2025-12"],
     [{ ...single, epfEmployee: 1.005 }, "at most 2 decimal places"],
     [{ ...single, monthlySalary: 0 }, "more than RM0"],
+    [{ ...single, taxCategory: undefined }, "taxCategory is required for a resident employee"],
   ])("rejects %j", (input, message) => {
     expect(() => calculateMtd(input)).toThrow(PayrollInputError);
     expect(() => calculateMtd(input)).toThrow(message);

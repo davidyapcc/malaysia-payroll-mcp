@@ -106,7 +106,8 @@ Sources: [Mercans: made voluntary](https://mercans.com/resources/statutory-alert
 - **Categories** (spec pp. 10 to 11): 1 is single, with no spouse or child relief (C = 0). 2 is married with a spouse who has no income or is jointly assessed: spouse relief RM4,000, and B includes the RM400 spouse rebate. 3 is married with a working spouse, divorced, widowed, or single with an adopted child: child relief but no spouse relief. ✅
 - **Children** (spec p. 27): RM2,000 each. Children in diploma-level or higher education count as 4, disabled children as 4, and both as 8. v1 takes only the plain RM2,000 count. ✅
 - **The RM10 minimum** is applied after rounding to 5 sen. The spec lists rounding (item 2) before the minimum (item 3) but doesn't say which value the minimum is tested on; the two only differ between RM9.96 and RM9.99. 🟡
-- **Not supported in v1:** zakat (Z), additional remuneration such as bonuses (Yt, Kt), disabled individual or spouse reliefs (DU, SU), and non-residents.
+- **Not supported in v1:** zakat (Z), additional remuneration such as bonuses (Yt, Kt), and disabled individual or spouse reliefs (DU, SU).
+- **Non-residents** (Section D.a, p. 9): a flat 30% of the remuneration, with no reliefs; the spec's example is RM3,000 → RM900 (MTD-06). The spec doesn't say whether Section E's rounding and RM10 minimum apply to them; we apply both. `calculate_mtd` takes `taxResident` (default true), and `calculate_net_pay` requires it for non-Malaysians. Exempt allowances aren't modelled, since the input is a single monthly salary. 🟡
 - **TP1 reliefs** (LP1, and ∑LP for earlier months) are taken as one RM total, which is what LHDN's worked examples 3 and 4 use. The caller decides what qualifies and applies each relief's limit, so the 2026 relief changes (vaccines, childcare up to RM3,000, insurance covering children, and so on) need no code. ✅
 
 ## Scope impact for v1

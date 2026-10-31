@@ -3,16 +3,18 @@ import * as z from "zod";
 import { calculateEpf } from "../../core/epf.js";
 import { age, citizenship, monthlySalary, payPeriod, resultTail, run } from "./shared.js";
 
+export const registeredWithEpfBefore1Aug1998 = z
+  .boolean()
+  .optional()
+  .describe(
+    "Only for non_malaysian: true if the employee registered with EPF before 1 Aug 1998, which puts them on the Malaysian rates. Defaults to false.",
+  );
+
 const inputSchema = z.object({
   monthlySalary,
   age,
   citizenship,
-  registeredWithEpfBefore1Aug1998: z
-    .boolean()
-    .optional()
-    .describe(
-      "Only for non_malaysian: true if the employee registered with EPF before 1 Aug 1998, which puts them on the Malaysian rates. Defaults to false.",
-    ),
+  registeredWithEpfBefore1Aug1998,
   payPeriod,
 });
 

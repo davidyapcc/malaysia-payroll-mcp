@@ -2,7 +2,7 @@
 
 An MCP server that works out Malaysian statutory payroll deductions (EPF, SOCSO, SKBBK, EIS and MTD/PCB) for one employee's monthly salary, and cites the official rate table or rule behind every number.
 
-**Status: pre-release.** EPF, SOCSO, SKBBK, EIS and MTD are in. Net pay and an agent eval are planned. Version 0.1.0 is tagged on GitHub; nothing is published to npm yet.
+**Status: pre-release.** EPF, SOCSO, SKBBK, EIS, MTD and net pay are in. An agent eval is planned. Version 0.1.0 is tagged on GitHub; nothing is published to npm yet.
 
 ## Tools
 
@@ -10,7 +10,8 @@ An MCP server that works out Malaysian statutory payroll deductions (EPF, SOCSO,
 | --- | --- |
 | `calculate_epf` | EPF employee and employer contributions, from the Third Schedule in effect |
 | `calculate_socso_eis` | SOCSO, SKBBK (Lindung 24 Jam) and EIS contributions, from the PERKESO tables in effect |
-| `calculate_mtd` | MTD (PCB) income tax deduction for a resident employee, with LHDN's formula and the working shown. Standard reliefs only (individual, spouse, children, EPF, plus a TP1 total) |
+| `calculate_mtd` | MTD (PCB) income tax deduction: LHDN's formula with the working shown for a tax resident, or the flat 30% for a non-resident (`taxResident: false`). Standard reliefs only (individual, spouse, children, EPF, plus a TP1 total) |
+| `calculate_net_pay` | One month's payslip: every deduction above, net pay, and the employer's contributions and total cost. Runs the three calculators in one call and feeds the employee EPF into MTD |
 
 Every result echoes the pay period it used (the current month in Malaysia if you don't pass one), and carries citations, an explanation rendered from them, and a disclaimer.
 
@@ -18,7 +19,7 @@ Every result echoes the pay period it used (the current month in Malaysia if you
 
 Every rate table the tools read is also a read-only resource, as JSON with amounts in sen: `payroll://tables/{kind}/{effectiveFrom}`, where `kind` is `epf`, `socso`, `skbbk`, `eis` or `mtd` (LHDN's tax schedule). For example, `payroll://tables/epf/2025-10-01` is the EPF Third Schedule from 1 Oct 2025. `resources/list` shows them all, and the template completes both parts.
 
-> Not tax advice, and not verified by KWSP, PERKESO or LHDN. Fixed monthly salaries only: overtime, commission, bonuses and arrears aren't supported, and neither are zakat or non-resident tax.
+> Not tax advice, and not verified by KWSP, PERKESO or LHDN. Fixed monthly salaries only: overtime, commission, bonuses and arrears aren't supported, and neither is zakat.
 
 ## Install
 
