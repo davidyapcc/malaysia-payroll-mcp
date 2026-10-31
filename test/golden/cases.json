@@ -530,6 +530,20 @@
           "chargeableIncome": 47000
         }
       }
+    },
+    {
+      "id": "MTD-06",
+      "input": {
+        "monthlySalary": 3000,
+        "epfEmployee": 0,
+        "taxResident": false,
+        "payPeriod": "2026-11"
+      },
+      "expected": {
+        "mtd": 900,
+        "taxResident": false,
+        "taxCategory": null
+      }
     }
   ],
   "netPay": [
@@ -630,7 +644,8 @@
         "citizenship": "non_malaysian",
         "taxCategory": 1,
         "yearToDate": "same_salary_all_year",
-        "payPeriod": "2026-11"
+        "payPeriod": "2026-11",
+        "taxResident": true
       },
       "expected": {
         "deductions": {
@@ -652,6 +667,40 @@
           "epfPart": "F",
           "socsoCategory": "second",
           "eisCovered": false
+        }
+      }
+    },
+    {
+      "id": "NP-05",
+      "input": {
+        "monthlySalary": 5000,
+        "age": 30,
+        "citizenship": "non_malaysian",
+        "taxCategory": 1,
+        "yearToDate": "same_salary_all_year",
+        "payPeriod": "2026-11",
+        "taxResident": false
+      },
+      "expected": {
+        "deductions": {
+          "epf": 100,
+          "socso": 0,
+          "skbbk": 37.15,
+          "eis": 0,
+          "mtd": 1500,
+          "total": 1637.15
+        },
+        "netPay": 3362.85,
+        "employerContributions": {
+          "epf": 100,
+          "socso": 61.9,
+          "eis": 0,
+          "total": 161.9
+        },
+        "basis": {
+          "epfPart": "F",
+          "taxResident": false,
+          "taxCategory": null
         }
       }
     }

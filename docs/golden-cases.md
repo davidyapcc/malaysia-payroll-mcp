@@ -43,7 +43,7 @@ All amounts are in RM. "ee" is the employee share and "er" the employer share.
 | EIS-03 | Malaysian, 58, `eisPayableBefore57: false` (for example, a former civil servant), wages 3,000.00 | er 0, ee 0 (exempt) | Act 800, First Schedule para 9 | Age exemption | ✅ |
 | EIS-04 | Malaysian, 58, `eisPayableBefore57: true` (was in insured work before 57, even if the employer never paid), wages 3,000.00 | er 5.90, ee 5.90 | Act 800, First Schedule para 9; row 34 | The test is whether contributions were *payable*, not whether they were *paid* | ✅ |
 
-## MTD / PCB (LHDN 2026 specification, resident, no zakat, no extra TP1 reliefs)
+## MTD / PCB (LHDN 2026 specification, no zakat, no extra TP1 reliefs)
 
 EPF relief K uses the employee EPF from the table. The annual RM4,000 cap applies to K1 as well as K2: once the running total reaches RM4,000, K1 drops to the remainder and then to 0.
 
@@ -67,6 +67,7 @@ These are the most authoritative MTD cases we have, because LHDN printed the ans
 | MTD-03 | Single, wages 2,500.00, Jan | **0.00** | P 17,700.00, formula gives −22.75 | Low income: the rebate wipes out the tax | ✅ |
 | MTD-04 | Single, wages 4,000.00, Jan | **16.70** | P 35,000.07, band picked on ⌊P⌋ = 35,000, so band 20,001–35,000 (M 20,000, R 3%, B 150), rebate 400; tax for the year 200.00 | **The rebate cliff.** Picking the band on P with cents would give **50.00**, which doesn't match LHDN's calculator. | ✅ LHDN calculator, Oct 24, 2026 |
 | MTD-05 | As MTD-01, **December**, same salary all year, every earlier MTD deducted (X 1,210.00) | **110.00** | K1 **0** (cap reached in Aug: Aug K1 = 150), P 47,000.00, n 0 | **The EPF cap on K1.** If you forget to cap K1, the result drifts to **36.45** by December. | ✅ |
+| MTD-06 | **Non-resident**, wages 3,000.00, Nov, no year to date | **900.00** | 30% of 3,000.00, no reliefs, no EPF relief | Spec Section D.a's own example (RM3,000 → RM900). Rounding to 5 sen and the RM10 minimum from Section E are our reading: the spec doesn't say whether they apply to non-residents, and at a flat 30% they only matter below RM33.34 or for odd sen | ✅ LHDN spec example |
 
 Worked example, MTD-01: P = (5,000 − 550) + (5,000 − 313.63) × 11 − 9,000 = 47,000.07. Then (47,000.07 − 35,000) × 6% = 720.0042, truncated to 720.00. Add 600 to get 1,320.00, and divide by 12: **110.00**. With the same salary all year, every month comes to 110.00, and the year totals 1,320.00, which is exactly the tax on a chargeable income of 47,000.
 
@@ -90,7 +91,8 @@ How the EPF cap runs through the year for MTD-01 and MTD-05:
 | NP-01 | Malaysian, 30, single (tax category 1), wages 5,000.00, pay period 2026-11, the same salary all year, SKBBK covered | **net 4,268.20** | EPF 550 + SOCSO 24.75 + SKBBK 37.15 + EIS 9.90 + MTD 110.00 | ✅ |
 | NP-02 | Same as NP-01, but opted out of SKBBK | **net 4,305.35** | EPF 550 + SOCSO 24.75 + EIS 9.90 + MTD 110.00 | ✅ |
 | NP-03 | Same as NP-01, but aged 62 | **net 4,828.70** | EPF 0 (Part E) + SOCSO 0 (second category) + SKBBK 37.15 + EIS 0 (60 and over) + MTD 134.15. Employer: EPF 200 + SOCSO 61.90 | **Over 60.** No EPF relief, so P is 51,000.00 (band 50,001–70,000, tax 1,610.00), and the same-salary months before it deducted 1,341.70 in total | ✅ |
-| NP-04 | Same as NP-01, but a foreign worker (non-Malaysian, EPF from 1 Aug 1998), tax resident | **net 4,738.85** | EPF 100 (Part F, 2%) + SOCSO 0 (second category) + SKBBK 37.15 + EIS 0 (not covered) + MTD 124.00. Employer: EPF 100 + SOCSO 61.90 | **Foreign worker.** EPF relief 1,200 for the year, P 49,800.00, tax 1,488.00. MTD assumes the worker is tax resident (182 days or more in Malaysia) | ✅ |
+| NP-04 | Same as NP-01, but a foreign worker (non-Malaysian, EPF from 1 Aug 1998), `taxResident: true` | **net 4,738.85** | EPF 100 (Part F, 2%) + SOCSO 0 (second category) + SKBBK 37.15 + EIS 0 (not covered) + MTD 124.00. Employer: EPF 100 + SOCSO 61.90 | **Foreign worker.** EPF relief 1,200 for the year, P 49,800.00, tax 1,488.00. For a non-Malaysian, `taxResident` is required: it is never assumed | ✅ |
+| NP-05 | Same as NP-04, but `taxResident: false` | **net 3,362.85** | EPF 100 + SKBBK 37.15 + MTD 1,500.00 (30% of 5,000.00). Employer: EPF 100 + SOCSO 61.90 | **Non-resident foreign worker.** The flat rate makes MTD 9× the resident figure, which is why the input is required | ✅ |
 
 Each line comes from the calculator for it, so the components are the cases above (EPF-, SOC- and MTD- rows) and the tables they cite. Net pay is the monthly salary minus the five employee lines. The tool feeds the employee EPF share into MTD, so `epfEmployee` is never an input.
 
@@ -118,4 +120,4 @@ For MTD-04, P = 35,000.07. LHDN's online calculator gives **16.70** a month and 
 - [x] Confirm per-share rounding above RM20,000 (EPF-09) from the Third Schedule's own bands (Oct 24, 2026). Emailing KWSP is optional.
 - [x] Phase 1: turn the EPF, SOCSO and EIS rows into `test/golden/cases.json` (Oct 24, 2026, roadmap 1.3).
 - [x] Phase 2: add the MTD rows, and LHDN's four worked examples, to `test/golden/cases.json` (Oct 31, 2026, roadmap 2.1). Inputs pass the employee EPF from the EPF table (for example 550.00 on 5,000.00), and MTD-05 passes the EPF actually paid (6,050.00) so the RM4,000 cap is exercised.
-- [x] Phase 2: add the net pay rows to `test/golden/cases.json` (Oct 31, 2026, roadmap 2.2), plus NP-03 (over 60) and NP-04 (foreign worker).
+- [x] Phase 2: add the net pay rows to `test/golden/cases.json` (Oct 31, 2026, roadmap 2.2), plus NP-03 (over 60), NP-04 (tax-resident foreign worker), NP-05 (non-resident foreign worker) and MTD-06 (non-resident).

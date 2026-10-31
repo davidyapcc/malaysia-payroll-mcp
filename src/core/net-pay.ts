@@ -1,6 +1,7 @@
 import { type Citation, renderExplanation } from "./citation.js";
 import { type Citizenship, monthlySalarySen } from "./employee.js";
 import { calculateEpf, type EpfResult } from "./epf.js";
+import { PayrollInputError } from "./errors.js";
 import { formatRm, toRm, toSen } from "./money.js";
 import { calculateMtd, type MtdInput, type MtdResult, type TaxCategory } from "./mtd.js";
 import { calculateSocsoEis, type SkbbkStatus, type SocsoEisResult } from "./socso-eis.js";
@@ -16,8 +17,10 @@ export interface NetPayInput {
   readonly skbbkStatus?: SkbbkStatus | undefined;
   /** EIS: required from 57 to 59. */
   readonly eisPayableBefore57?: boolean | undefined;
-  /** MTD, for a resident employee. */
-  readonly taxCategory: TaxCategory;
+  /** MTD: defaults to true, except that a non-Malaysian has to say. */
+  readonly taxResident?: boolean | undefined;
+  /** MTD: required for a tax resident. */
+  readonly taxCategory?: TaxCategory | undefined;
   readonly children?: number | undefined;
   readonly tp1Reliefs?: number | undefined;
   /** MTD: required from February. "same_salary_all_year" reuses this month's salary and EPF. */
@@ -55,9 +58,11 @@ export interface NetPayResult {
     readonly socsoCategory: SocsoEisResult["socso"]["category"];
     readonly skbbkStatus: SkbbkStatus;
     readonly eisCovered: boolean;
-    readonly taxCategory: TaxCategory;
+    readonly taxResident: boolean;
+    readonly taxCategory: TaxCategory | null;
     readonly children: number;
-    readonly mtdYearToDate: MtdResult["yearToDate"];
+    /** Residents only. */
+    readonly mtdYearToDate?: MtdResult["yearToDate"];
   };
   readonly citations: readonly Citation[];
   readonly explanation: string;
@@ -69,6 +74,12 @@ export interface NetPayResult {
  */
 export function calculateNetPay(input: NetPayInput, options: { now?: Date } = {}): NetPayResult {
   const salary = monthlySalarySen(input.monthlySalary);
+  // A foreign worker's tax residence varies (182 days in the year), so it is never assumed.
+  if (input.citizenship === "non_malaysian" && input.taxResident === undefined) {
+    throw new PayrollInputError(
+      "taxResident is required for a non_malaysian employee: true if they are tax resident in Malaysia (usually 182 days or more in the calendar year), false for the flat 30% non-resident rate.",
+    );
+  }
   const common = {
     monthlySalary: input.monthlySalary,
     age: input.age,
@@ -94,6 +105,7 @@ export function calculateNetPay(input: NetPayInput, options: { now?: Date } = {}
     {
       monthlySalary: input.monthlySalary,
       epfEmployee: epf.employee,
+      taxResident: input.taxResident,
       taxCategory: input.taxCategory,
       children: input.children,
       tp1Reliefs: input.tp1Reliefs,
@@ -147,9 +159,10 @@ export function calculateNetPay(input: NetPayInput, options: { now?: Date } = {}
       socsoCategory: socsoEis.socso.category,
       skbbkStatus: socsoEis.skbbkStatus,
       eisCovered: socsoEis.eis.covered,
+      taxResident: mtd.taxResident,
       taxCategory: mtd.taxCategory,
       children: mtd.children,
-      mtdYearToDate: mtd.yearToDate,
+      ...(mtd.yearToDate === undefined ? {} : { mtdYearToDate: mtd.yearToDate }),
     },
     citations,
     explanation: `${renderExplanation(citations)}\n${summary}`,

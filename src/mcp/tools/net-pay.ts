@@ -14,6 +14,9 @@ const inputSchema = z.object({
   skbbkStatus,
   eisPayableBefore57,
   ...mtdFields,
+  taxResident: mtdFields.taxResident.describe(
+    "Required for a non_malaysian employee; defaults to true otherwise. true if tax resident in Malaysia (usually 182 days or more in the calendar year). false for the flat 30% non-resident MTD, with no reliefs: taxCategory, children, tp1Reliefs and yearToDate are then ignored.",
+  ),
   payPeriod,
 });
 
@@ -48,14 +51,18 @@ const outputSchema = z.object({
       socsoCategory: z.enum(["first", "second"]),
       skbbkStatus: z.enum(["covered", "opted_out"]),
       eisCovered: z.boolean(),
-      taxCategory: z.number(),
+      taxResident: z.boolean(),
+      taxCategory: z.number().nullable().describe("null for a non-resident."),
       children: z.number(),
-      mtdYearToDate: z.object({
-        remuneration: z.number(),
-        epf: z.number(),
-        mtd: z.number(),
-        tp1Reliefs: z.number(),
-      }),
+      mtdYearToDate: z
+        .object({
+          remuneration: z.number(),
+          epf: z.number(),
+          mtd: z.number(),
+          tp1Reliefs: z.number(),
+        })
+        .optional()
+        .describe("Residents only."),
     })
     .describe(
       "The rules each calculation used. Call calculate_epf, calculate_socso_eis or calculate_mtd for the full working.",
@@ -69,7 +76,7 @@ export function registerNetPayTool(server: McpServer): void {
     {
       title: "Calculate net pay (payslip)",
       description:
-        "Works out one month's payslip for one employee in Malaysia: EPF, SOCSO, SKBBK, EIS and MTD (PCB) deductions, net pay, and the employer's contributions and total cost. Runs the same calculations as calculate_epf, calculate_socso_eis and calculate_mtd, feeding the employee EPF into MTD, and cites the source of every line. MTD assumes a tax-resident employee. Fixed monthly salaries and standard reliefs only; no bonuses, zakat or non-resident tax.",
+        "Works out one month's payslip for one employee in Malaysia: EPF, SOCSO, SKBBK, EIS and MTD (PCB) deductions, net pay, and the employer's contributions and total cost. Runs the same calculations as calculate_epf, calculate_socso_eis and calculate_mtd, feeding the employee EPF into MTD, and cites the source of every line. For a non_malaysian employee, say whether they are tax resident (taxResident). Fixed monthly salaries and standard reliefs only; no bonuses or zakat.",
       inputSchema,
       outputSchema,
       annotations: { readOnlyHint: true, openWorldHint: false },

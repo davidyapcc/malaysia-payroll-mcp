@@ -106,8 +106,8 @@ malaysia-payroll-mcp/
 | --- | --- | --- |
 | `calculate_epf` | `monthlySalary`, `age`, `citizenship`, `registeredWithEpfBefore1Aug1998?`, `payPeriod?` | employee and employer shares, citations, explanation |
 | `calculate_socso_eis` | `monthlySalary`, `age`, `citizenship`, `skbbkStatus?` (default `covered`), `eisPayableBefore57?` (required from 57 to 59), `payPeriod?` | SOCSO, SKBBK and EIS shares, band, citations, explanation |
-| `calculate_mtd` | `monthlySalary`, `epfEmployee` (from `calculate_epf`), `taxCategory` (LHDN's 1, 2 or 3), `children?`, `tp1Reliefs?`, `yearToDate?` (required from February: totals, or `same_salary_all_year`), `payPeriod?` | MTD amount, the formula's working (K1, K2, P, band), citations, explanation |
-| `calculate_net_pay` | the inputs above, except `epfEmployee` (taken from the EPF result) | deductions, net pay, employer contributions and cost, the rules each calculation used, every citation, explanation |
+| `calculate_mtd` | `monthlySalary`, `epfEmployee` (from `calculate_epf`), `taxResident?` (default true; false = flat 30%), `taxCategory` (LHDN's 1, 2 or 3; required for residents), `children?`, `tp1Reliefs?`, `yearToDate?` (required from February: totals, or `same_salary_all_year`), `payPeriod?` | MTD amount, the formula's working (K1, K2, P, band), citations, explanation |
+| `calculate_net_pay` | the inputs above, except `epfEmployee` (taken from the EPF result); `taxResident` is required for non-Malaysians | deductions, net pay, employer contributions and cost, the rules each calculation used, every citation, explanation |
 
 Inputs and outputs are zod schemas, registered with `outputSchema` and returned as `structuredContent`, so a bad input gives the agent a clear validation error it can fix.
 

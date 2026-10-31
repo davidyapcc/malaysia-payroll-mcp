@@ -7,10 +7,17 @@ const rm = z.number().min(0).max(100_000_000);
 
 /** The MTD inputs other than salary and EPF, shared with calculate_net_pay. */
 export const mtdFields = {
+  taxResident: z
+    .boolean()
+    .optional()
+    .describe(
+      "Defaults to true. false if the employee is not resident, or not known to be resident, in Malaysia for tax (usually under 182 days in the calendar year): MTD is then a flat 30% of the salary, with no reliefs, and taxCategory, children, tp1Reliefs and yearToDate are ignored.",
+    ),
   taxCategory: z
     .union([z.literal(1), z.literal(2), z.literal(3)])
+    .optional()
     .describe(
-      "LHDN tax category. 1: single. 2: married and the spouse has no income (or is jointly assessed). 3: married with a working spouse, or divorced, widowed, or single with an adopted child.",
+      "Required for a tax resident. LHDN tax category. 1: single. 2: married and the spouse has no income (or is jointly assessed). 3: married with a working spouse, or divorced, widowed, or single with an adopted child.",
     ),
   children: z
     .number()
@@ -56,12 +63,14 @@ const inputSchema = z.object({
 const outputSchema = z.object({
   payPeriod: z.string(),
   monthlySalary: z.number(),
-  taxCategory: z.number(),
+  taxResident: z.boolean(),
+  taxCategory: z.number().nullable().describe("null for a non-resident."),
   children: z.number(),
   mtd: z.number().describe("RM, deducted from pay."),
   yearToDate: z
     .object({ remuneration: z.number(), epf: z.number(), mtd: z.number(), tp1Reliefs: z.number() })
-    .describe("The year-to-date figures used, in RM."),
+    .optional()
+    .describe("The year-to-date figures used, in RM. Residents only."),
   working: z
     .object({
       monthsRemaining: z.number().describe("n"),
@@ -79,7 +88,8 @@ const outputSchema = z.object({
         })
         .optional(),
     })
-    .describe("The LHDN formula's working, so it can be checked line by line."),
+    .optional()
+    .describe("The LHDN formula's working, so it can be checked line by line. Residents only."),
   ...resultTail,
 });
 
@@ -89,7 +99,7 @@ export function registerMtdTool(server: McpServer): void {
     {
       title: "Calculate MTD (PCB) income tax deduction",
       description:
-        "Works out the monthly tax deduction (MTD, also called PCB) for one resident employee in Malaysia with LHDN's computerised formula, from the schedule in effect for the pay period, and shows the working. Fixed monthly salaries and standard reliefs only (individual, spouse, children, EPF, plus a TP1 total); no bonuses, zakat or non-residents.",
+        "Works out the monthly tax deduction (MTD, also called PCB) for one employee in Malaysia. For a tax resident it uses LHDN's computerised formula, from the schedule in effect for the pay period, and shows the working; for a non-resident it applies the flat 30%. Fixed monthly salaries and standard reliefs only (individual, spouse, children, EPF, plus a TP1 total); no bonuses or zakat.",
       inputSchema,
       outputSchema,
       annotations: { readOnlyHint: true, openWorldHint: false },

@@ -49,14 +49,9 @@ describe("tools/list", () => {
       "payPeriod",
     ]);
     const mtd = tools.find((t) => t.name === "calculate_mtd");
-    expect(mtd?.inputSchema.required).toEqual(["monthlySalary", "epfEmployee", "taxCategory"]);
+    expect(mtd?.inputSchema.required).toEqual(["monthlySalary", "epfEmployee"]);
     const netPay = tools.find((t) => t.name === "calculate_net_pay");
-    expect(netPay?.inputSchema.required).toEqual([
-      "monthlySalary",
-      "age",
-      "citizenship",
-      "taxCategory",
-    ]);
+    expect(netPay?.inputSchema.required).toEqual(["monthlySalary", "age", "citizenship"]);
     expect(Object.keys(netPay?.inputSchema.properties ?? {})).not.toContain("epfEmployee");
   });
 });
@@ -145,6 +140,15 @@ describe("calculate_mtd", () => {
     expect(text(result)).toContain("yearToDate is required for pay period 2026-11");
   });
 
+  it("returns a missing tax category for a resident as a tool error", async () => {
+    const result = await client.callTool({
+      name: "calculate_mtd",
+      arguments: { monthlySalary: 5000, epfEmployee: 550, payPeriod: "2026-01" },
+    });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("taxCategory is required for a resident employee");
+  });
+
   it("rejects a tax category LHDN doesn't have", async () => {
     const result = await client.callTool({
       name: "calculate_mtd",
@@ -177,5 +181,21 @@ describe("calculate_net_pay", () => {
     });
     expect(result.isError).toBe(true);
     expect(text(result)).toContain("eisPayableBefore57 is required");
+  });
+
+  it("asks whether a non-Malaysian is tax resident instead of assuming", async () => {
+    const result = await client.callTool({
+      name: "calculate_net_pay",
+      arguments: {
+        monthlySalary: 5000,
+        age: 30,
+        citizenship: "non_malaysian",
+        taxCategory: 1,
+        yearToDate: "same_salary_all_year",
+        payPeriod: "2026-11",
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("taxResident is required for a non_malaysian employee");
   });
 });

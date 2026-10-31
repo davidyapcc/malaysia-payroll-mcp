@@ -34,6 +34,7 @@ describe("calculateNetPay", () => {
       socsoCategory: "first",
       skbbkStatus: "covered",
       eisCovered: true,
+      taxResident: true,
       taxCategory: 2,
       children: 2,
       mtdYearToDate: mtd.yearToDate,
@@ -73,7 +74,23 @@ describe("calculateNetPay", () => {
     const { payPeriod: _, yearToDate: __, ...input } = employee;
     const result = calculateNetPay({ ...input, yearToDate: "same_salary_all_year" }, { now });
     expect(result.payPeriod).toBe("2026-02");
-    expect(result.basis.mtdYearToDate.remuneration).toBe(5000);
+    expect(result.basis.mtdYearToDate?.remuneration).toBe(5000);
+  });
+
+  it("never assumes a non-Malaysian's tax residence, but does for locals", () => {
+    expect(() => calculateNetPay({ ...employee, citizenship: "non_malaysian" })).toThrow(
+      "taxResident is required for a non_malaysian employee",
+    );
+    expect(
+      calculateNetPay({ ...employee, citizenship: "permanent_resident" }).basis.taxResident,
+    ).toBe(true);
+  });
+
+  it("taxes a non-resident at the flat rate, with no year to date", () => {
+    const { yearToDate: _, ...input } = employee;
+    const result = calculateNetPay({ ...input, taxResident: false });
+    expect(result.deductions.mtd).toBe(1500);
+    expect(result.basis).not.toHaveProperty("mtdYearToDate");
   });
 
   it("passes on an input error from any calculation", () => {
@@ -82,7 +99,12 @@ describe("calculateNetPay", () => {
       'Pay period must be YYYY-MM, got "2026-13".',
     );
     expect(() =>
-      calculateNetPay({ ...employee, citizenship: "non_malaysian", skbbkStatus: "opted_out" }),
+      calculateNetPay({
+        ...employee,
+        citizenship: "non_malaysian",
+        taxResident: true,
+        skbbkStatus: "opted_out",
+      }),
     ).toThrow("Foreign workers can't opt out of SKBBK");
     expect(() => calculateNetPay({ ...employee, yearToDate: undefined })).toThrow(
       "yearToDate is required for pay period 2026-11",
