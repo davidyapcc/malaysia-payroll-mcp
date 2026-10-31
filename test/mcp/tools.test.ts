@@ -25,9 +25,13 @@ function text(result: Awaited<ReturnType<Client["callTool"]>>): string {
 }
 
 describe("tools/list", () => {
-  it("lists both tools with input and output schemas", async () => {
+  it("lists every tool with input and output schemas", async () => {
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(["calculate_epf", "calculate_socso_eis"]);
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      "calculate_epf",
+      "calculate_mtd",
+      "calculate_socso_eis",
+    ]);
     for (const tool of tools) {
       expect(tool.outputSchema).toBeDefined();
       expect(tool.annotations).toMatchObject({ readOnlyHint: true });
@@ -43,6 +47,8 @@ describe("tools/list", () => {
       "eisPayableBefore57",
       "payPeriod",
     ]);
+    const mtd = tools.find((t) => t.name === "calculate_mtd");
+    expect(mtd?.inputSchema.required).toEqual(["monthlySalary", "epfEmployee", "taxCategory"]);
   });
 });
 
@@ -93,5 +99,49 @@ describe("calculate_socso_eis", () => {
       expect(result.isError).toBeFalsy();
       expect(result.structuredContent).toMatchObject({ ...c.expected, disclaimer: DISCLAIMER });
     }
+  });
+});
+
+describe("calculate_mtd", () => {
+  it.each(golden.mtd.map((c) => [c.id, c] as const))("%s", async (_id, c) => {
+    const result = await client.callTool({ name: "calculate_mtd", arguments: c.input });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ ...c.expected, disclaimer: DISCLAIMER });
+    expect(JSON.parse(text(result))).toEqual(result.structuredContent);
+  });
+
+  it("accepts same_salary_all_year for the year to date", async () => {
+    const result = await client.callTool({
+      name: "calculate_mtd",
+      arguments: {
+        monthlySalary: 5000,
+        epfEmployee: 550,
+        taxCategory: 1,
+        yearToDate: "same_salary_all_year",
+        payPeriod: "2026-11",
+      },
+    });
+    expect(result.structuredContent).toMatchObject({
+      mtd: 110,
+      yearToDate: { remuneration: 50000, epf: 5500, mtd: 1100 },
+    });
+  });
+
+  it("returns a missing year to date as a tool error the agent can act on", async () => {
+    const result = await client.callTool({
+      name: "calculate_mtd",
+      arguments: { monthlySalary: 5000, epfEmployee: 550, taxCategory: 1, payPeriod: "2026-11" },
+    });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("yearToDate is required for pay period 2026-11");
+  });
+
+  it("rejects a tax category LHDN doesn't have", async () => {
+    const result = await client.callTool({
+      name: "calculate_mtd",
+      arguments: { monthlySalary: 5000, epfEmployee: 550, taxCategory: 4, payPeriod: "2026-01" },
+    });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("taxCategory");
   });
 });

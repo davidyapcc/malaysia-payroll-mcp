@@ -41,11 +41,12 @@ describe("resources/templates/list", () => {
 });
 
 describe("resources/list", () => {
-  it("lists each generated table once, SKBBK as its own kind", async () => {
+  it("lists each generated table once, SKBBK and MTD as their own kinds", async () => {
     const { resources } = await client.listResources();
     expect(resources.map((r) => r.uri).sort()).toEqual([
       "payroll://tables/eis/2024-10-01",
       "payroll://tables/epf/2025-10-01",
+      "payroll://tables/mtd/2026-01-01",
       "payroll://tables/skbbk/2026-06-01",
       "payroll://tables/socso/2024-10-01",
     ]);
@@ -90,7 +91,7 @@ describe("completion/complete", () => {
 
   it("completes table kinds", async () => {
     const all = await client.complete({ ref, argument: { name: "kind", value: "" } });
-    expect(all.completion.values.sort()).toEqual(["eis", "epf", "skbbk", "socso"]);
+    expect(all.completion.values.sort()).toEqual(["eis", "epf", "mtd", "skbbk", "socso"]);
     const s = await client.complete({ ref, argument: { name: "kind", value: "s" } });
     expect(s.completion.values.sort()).toEqual(["skbbk", "socso"]);
   });

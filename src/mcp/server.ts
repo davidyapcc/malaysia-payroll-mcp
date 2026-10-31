@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { VERSION } from "../version.js";
 import { registerTableResources } from "./resources.js";
 import { registerEpfTool } from "./tools/epf.js";
+import { registerMtdTool } from "./tools/mtd.js";
 import { registerSocsoEisTool } from "./tools/socso-eis.js";
 
 export const SERVER_NAME = "malaysia-payroll-mcp";
@@ -14,6 +15,7 @@ export function createServer(): McpServer {
   );
   registerEpfTool(server);
   registerSocsoEisTool(server);
+  registerMtdTool(server);
   registerTableResources(server);
   return server;
 }

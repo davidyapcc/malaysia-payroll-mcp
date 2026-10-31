@@ -103,7 +103,11 @@ Sources: [Mercans: made voluntary](https://mercans.com/resources/statutory-alert
 - The tax table runs from 0% up to 30%. B values differ by category (1 and 3 vs 2) only in the RM5,001 to RM35,000 bands, because they include the RM400 individual and spouse rebates. ✅
 - Reliefs v1 needs: individual RM9,000, spouse RM4,000, child RM2,000 each, and EPF capped at RM4,000. ✅
 - **Rounding:** keep 2 decimal places and drop the rest, then round the MTD **up to the next 5 sen**. No deduction if MTD is below RM10 before zakat. ✅
-- The 2026 relief changes (vaccines, childcare up to RM3,000, insurance covering children, and so on) only matter if v1 accepts TP1 reliefs. It doesn't, so they stay out of scope. ✅
+- **Categories** (spec pp. 10 to 11): 1 is single, with no spouse or child relief (C = 0). 2 is married with a spouse who has no income or is jointly assessed: spouse relief RM4,000, and B includes the RM400 spouse rebate. 3 is married with a working spouse, divorced, widowed, or single with an adopted child: child relief but no spouse relief. ✅
+- **Children** (spec p. 27): RM2,000 each. Children in diploma-level or higher education count as 4, disabled children as 4, and both as 8. v1 takes only the plain RM2,000 count. ✅
+- **The RM10 minimum** is applied after rounding to 5 sen. The spec lists rounding (item 2) before the minimum (item 3) but doesn't say which value the minimum is tested on; the two only differ between RM9.96 and RM9.99. 🟡
+- **Not supported in v1:** zakat (Z), additional remuneration such as bonuses (Yt, Kt), disabled individual or spouse reliefs (DU, SU), and non-residents.
+- **TP1 reliefs** (LP1, and ∑LP for earlier months) are taken as one RM total, which is what LHDN's worked examples 3 and 4 use. The caller decides what qualifies and applies each relief's limit, so the 2026 relief changes (vaccines, childcare up to RM3,000, insurance covering children, and so on) need no code. ✅
 
 ## Scope impact for v1
 
