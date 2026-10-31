@@ -1,8 +1,10 @@
 # Architecture: malaysia-payroll-mcp
 
-Status: decided, Oct 24, 2026, after an architecture review. This covers v1 (one resident employee, one month). Domain terms are defined in [CONTEXT.md](../CONTEXT.md). The decisions that are hard to undo or surprising have their own records in [adr/](adr/).
+Status: design decided Oct 24, 2026, after an architecture review; partly built. This covers v1 (one resident employee, one month). Domain terms are defined in [CONTEXT.md](../CONTEXT.md). The decisions that are hard to undo or surprising have their own records in [adr/](adr/).
 
-The project's main goal is a CV proof point. Real payroll users come second. Where those pull in different directions, choose what a reviewer can see and verify: tests, the eval gate, provenance, a live demo.
+The goal is statutory payroll numbers an agent can rely on: correct, traceable to an official source, and tested. Where goals conflict, choose what someone can see and verify: tests, provenance and a citation behind every number.
+
+**Built today:** `calculate_epf`, `calculate_socso_eis`, the rate tables and their resources, the stdio entry point, and CI for lint, types, generated tables and tests. **Planned, not built:** everything marked "planned" below, including MTD, net pay, the agent eval, the hosted endpoint, npm publishing and the MCP Registry listing.
 
 ## Repository layout
 
@@ -29,8 +31,8 @@ malaysia-payroll-mcp/
 │   │   ├── pay-period.ts      # parse, default to the current month in Malaysia time
 │   │   ├── epf.ts
 │   │   ├── socso-eis.ts
-│   │   ├── mtd.ts
-│   │   ├── net-pay.ts
+│   │   ├── mtd.ts             # planned
+│   │   ├── net-pay.ts         # planned
 │   │   └── citation.ts        # Citation type, builders, explanation text
 │   ├── tables/
 │   │   ├── loader.ts          # pick a table by effective date (country-neutral)
@@ -42,23 +44,23 @@ malaysia-payroll-mcp/
 │   │   ├── tools/*.ts         # zod schemas plus thin adapters into core
 │   │   └── resources.ts       # tables exposed as resources
 │   └── entry/
-│       ├── stdio.ts           # bin entry for Claude Desktop and Claude Code (v1.0)
-│       └── worker.ts          # Cloudflare Worker, streamable HTTP (v1.1)
+│       ├── stdio.ts           # bin entry for Claude Desktop and Claude Code
+│       └── worker.ts          # planned: Cloudflare Worker, streamable HTTP (v1.1)
 ├── test/
 │   ├── golden/cases.json      # one file, IDs match golden-cases.md
 │   └── *.test.ts
-├── evals/
+├── evals/                     # planned
 │   ├── cases.jsonl            # about 30 prompts with expected tool, args and total
 │   └── run.ts
-├── server.json                # MCP Registry manifest
+├── server.json                # planned: MCP Registry manifest
 └── .github/
     ├── dependabot.yml
-    └── workflows/{ci,publish}.yml
+    └── workflows/{ci,publish}.yml  # publish.yml is planned
 ```
 
 **`core/` never imports from `mcp/`.** The calculations stay plain functions that can be tested without a server, and the MCP layer is a thin adapter on top. That keeps 100% core coverage cheap and lets a later country server reuse the core. Keep `money.ts`, `citation.ts` and `tables/loader.ts` free of Malaysia-specific logic, so they can move into a shared package if a second country happens.
 
-**Entry points are thin too.** `worker.ts` only wires the SDK's web-standard HTTP transport to the server. Moving to AWS Lambda later means adding a `lambda.ts` next to it, not changing the server.
+**Entry points are thin too.** `worker.ts` (planned) only wires the SDK's web-standard HTTP transport to the server. Moving to AWS Lambda later means adding a `lambda.ts` next to it, not changing the server.
 
 ## Stack
 
@@ -71,8 +73,8 @@ malaysia-payroll-mcp/
 | Build | plain `tsc`, no bundler. With TS 6 or later, add `"types": ["node"]` to tsconfig (the SDK's types reference `Buffer`). |
 | Lint and format | Biome |
 | Tests | Vitest with v8 coverage |
-| Agent eval | custom `evals/run.ts`: Anthropic SDK tool-use loop against the server through `InMemoryTransport` |
-| Hosting (v1.1) | Cloudflare Workers. AWS Lambda may be tried later as a learning exercise. |
+| Agent eval (planned) | custom `evals/run.ts`: Anthropic SDK tool-use loop against the server through `InMemoryTransport` |
+| Hosting (planned, v1.1) | Cloudflare Workers. AWS Lambda may be tried later as a learning exercise. |
 
 ## Key design decisions
 
@@ -94,7 +96,7 @@ malaysia-payroll-mcp/
 
 **Stateless, no auth, no storage.** Nothing is kept between calls.
 
-**Hosted endpoint: no bodies in logs.** Salary and age are personal data under PDPA even when nothing is stored. The Worker logs only the tool name, status and latency, never request or response bodies, and it rate-limits per IP. The README has a short privacy note saying so.
+**Hosted endpoint (planned): no bodies in logs.** Salary and age are personal data under PDPA even when nothing is stored. The Worker logs only the tool name, status and latency, never request or response bodies, and it rate-limits per IP. The README has a short privacy note saying so.
 
 **A disclaimer in every response.** Each tool result has a short field: not tax advice, not LHDN-verified, fixed salaries only.
 
@@ -104,8 +106,8 @@ malaysia-payroll-mcp/
 | --- | --- | --- |
 | `calculate_epf` | `monthlySalary`, `age`, `citizenship`, `registeredWithEpfBefore1Aug1998?`, `payPeriod?` | employee and employer shares, citations, explanation |
 | `calculate_socso_eis` | `monthlySalary`, `age`, `citizenship`, `skbbkStatus?` (default `covered`), `eisPayableBefore57?` (required from 57 to 59), `payPeriod?` | SOCSO, SKBBK and EIS shares, band, citations, explanation |
-| `calculate_mtd` | `monthlySalary`, `ytdSalary`, `ytdMtd`, `ytdEpf`, `maritalStatus`, `children`, `payPeriod?` | MTD amount, citations, explanation |
-| `calculate_net_pay` | union of the above | payslip breakdown and net pay, citations, explanation |
+| `calculate_mtd` (planned) | `monthlySalary`, `ytdSalary`, `ytdMtd`, `ytdEpf`, `maritalStatus`, `children`, `payPeriod?` | MTD amount, citations, explanation |
+| `calculate_net_pay` (planned) | union of the above | payslip breakdown and net pay, citations, explanation |
 
 Inputs and outputs are zod schemas, registered with `outputSchema` and returned as `structuredContent`, so a bad input gives the agent a clear validation error it can fix.
 
@@ -117,14 +119,16 @@ Resources: `payroll://tables/{kind}/{effectiveFrom}`, for example `payroll://tab
 | --- | --- | --- | --- |
 | Lint, format and types | Biome, `tsc --noEmit` | every PR | required |
 | Generated tables up to date | `pnpm gen:tables:check` (fails on any changed, missing or stale generated file) | every PR | required |
-| Golden unit tests | Vitest | every PR, Node 22, 24 and 26 | required, 100% coverage on `src/core` |
+| Golden unit tests | Vitest | every PR, Node 22, 24 and 26 | required, 100% coverage of `src/` except `src/entry/` |
 | MCP contract | Vitest plus `InMemoryTransport` client | every PR | required |
-| Agent eval | `evals/run.ts`, cheapest Claude model that passes, temperature 0 | same-repo PRs that touch `src/` or `evals/` | required, pass threshold 28/30 |
+| Agent eval (planned) | `evals/run.ts`, cheapest Claude model that passes, temperature 0 | same-repo PRs that touch `src/` or `evals/` | required, pass threshold 28/30 |
 | Manual | MCP Inspector, Claude Desktop, Claude Code | before each tag | checklist |
 
-**Eval cost and key exposure.** Every eval run spends Claude API credits, and fork PRs can't see secrets. So the eval runs only on same-repo PRs (`pull_request` event, never `pull_request_target`), and fork PRs run unit tests only. It uses the cheapest capable model, runs cases in parallel with a hard `max_tokens`, is skipped when `src/` and `evals/` are unchanged, and the API key has a monthly spend limit.
+**Eval cost and key exposure (planned).** Every eval run spends Claude API credits, and fork PRs can't see secrets. So the eval runs only on same-repo PRs (`pull_request` event, never `pull_request_target`), and fork PRs run unit tests only. It uses the cheapest capable model, runs cases in parallel with a hard `max_tokens`, is skipped when `src/` and `evals/` are unchanged, and the API key has a monthly spend limit.
 
 ## Release and infrastructure
+
+Planned: nothing below has been released yet. The package version is still 0.0.0.
 
 - **Versioning.** A new rate table is a minor version. So is any fix that changes a number, with a "results changed" note in the release notes, never a quiet patch. A schema change that breaks callers is a major version. Patch versions cover everything else.
 - **Publishing.** Pushing a `v*` tag runs `publish.yml`. It publishes to npm through trusted publishing (OIDC, needs `id-token: write`, provenance is automatic), then to the MCP Registry with `mcp-publisher login github-oidc`. No npm token is stored. The first npm publish is probably manual, so trusted publishing can be configured on an existing package. Publish runs on Node 24.

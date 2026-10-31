@@ -1,8 +1,8 @@
 # malaysia-payroll-mcp
 
-An MCP server that works out Malaysian statutory payroll deductions (EPF, SOCSO, EIS and MTD/PCB) for one resident employee's monthly salary, and cites the official rate table or rule behind every number.
+An MCP server that works out Malaysian statutory payroll contributions (EPF, SOCSO, SKBBK and EIS) for one employee's monthly salary, and cites the official rate table or rule behind every number.
 
-**Status: pre-release.** EPF, SOCSO, SKBBK and EIS are in; MTD and net pay come next. Nothing is published to npm yet.
+**Status: pre-release.** EPF, SOCSO, SKBBK and EIS are in. MTD/PCB, net pay and an agent eval are planned. Nothing is published to npm yet.
 
 ## Tools
 
@@ -18,6 +18,78 @@ Every result echoes the pay period it used (the current month in Malaysia if you
 Every rate table the tools read is also a read-only resource, as JSON with amounts in sen: `payroll://tables/{kind}/{effectiveFrom}`, where `kind` is `epf`, `socso`, `skbbk` or `eis`. For example, `payroll://tables/epf/2025-10-01` is the EPF Third Schedule from 1 Oct 2025. `resources/list` shows them all, and the template completes both parts.
 
 > Not tax advice and not LHDN-verified. Fixed monthly salaries only: overtime, commission, bonuses and arrears aren't supported.
+
+## Install
+
+Nothing is on npm yet, so build from source. You need Node 22 or later and pnpm.
+
+```sh
+git clone https://github.com/davidyapcc/malaysia-payroll-mcp.git
+cd malaysia-payroll-mcp
+pnpm install
+pnpm build
+```
+
+## Usage
+
+The server runs over stdio. Replace `/absolute/path/to` with where you cloned it.
+
+**Claude Code:**
+
+```sh
+claude mcp add malaysia-payroll -- node /absolute/path/to/malaysia-payroll-mcp/dist/entry/stdio.js
+```
+
+**Claude Desktop**, in `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "malaysia-payroll": {
+      "command": "node",
+      "args": ["/absolute/path/to/malaysia-payroll-mcp/dist/entry/stdio.js"]
+    }
+  }
+}
+```
+
+### Example
+
+Calling `calculate_epf` with these arguments:
+
+```json
+{ "monthlySalary": 5000, "age": 34, "citizenship": "malaysian", "payPeriod": "2026-10" }
+```
+
+returns the following (amounts in RM, output from a real run):
+
+```json
+{
+  "payPeriod": "2026-10",
+  "monthlySalary": 5000,
+  "part": "A",
+  "employee": 550,
+  "employer": 650,
+  "total": 1200,
+  "citations": [
+    {
+      "item": "EPF",
+      "employee": 550,
+      "employer": 650,
+      "rule": "Part A applies to Malaysians, permanent residents and non-Malaysians registered before 1 Aug 1998, under 60. Up to RM20,000 the schedule's band amounts apply.",
+      "tableRow": "Part A, RM4,980.01 to RM5,000.00",
+      "source": {
+        "title": "EPF Act 1991, Third Schedule (from 1 October 2025)",
+        "url": "https://www.kwsp.gov.my/documents/d/guest/third_schedule_from_-1-october-2025",
+        "retrieved": "2026-10-23"
+      },
+      "effectiveFrom": "2025-10-01"
+    }
+  ],
+  "explanation": "EPF: employee RM550.00, employer RM650.00. Part A applies to Malaysians, permanent residents and non-Malaysians registered before 1 Aug 1998, under 60. Up to RM20,000 the schedule's band amounts apply. Table row: Part A, RM4,980.01 to RM5,000.00. Source: EPF Act 1991, Third Schedule (from 1 October 2025), in effect from 2025-10-01.",
+  "disclaimer": "Not tax or legal advice, and not LHDN-verified. Fixed monthly salaries only: overtime, commission, bonuses and arrears are not supported. Check results against the cited source."
+}
+```
 
 ## Docs
 
