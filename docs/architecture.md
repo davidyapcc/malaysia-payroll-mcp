@@ -66,7 +66,7 @@ malaysia-payroll-mcp/
 
 | Concern | Choice |
 | --- | --- |
-| Language and runtime | TypeScript, ESM only, Node `>=22` (CI tests 22, 24 and 26) |
+| Language and runtime | TypeScript, ESM only, Node `>=24` (CI tests 24 and 26) |
 | MCP SDK | `@modelcontextprotocol/server` `^2.4.0` (v2, stable since Jul 27, 2026; replaces `@modelcontextprotocol/sdk`) |
 | Schemas | zod 4 (required by SDK v2), for every tool input and output |
 | Package manager | pnpm |
@@ -119,7 +119,7 @@ Resources: `payroll://tables/{kind}/{effectiveFrom}`, for example `payroll://tab
 | --- | --- | --- | --- |
 | Lint, format and types | Biome, `tsc --noEmit` | every PR | required |
 | Generated tables up to date | `pnpm gen:tables:check` (fails on any changed, missing or stale generated file) | every PR | required |
-| Golden unit tests | Vitest | every PR, Node 22, 24 and 26 | required, 100% coverage of `src/` except `src/entry/` |
+| Golden unit tests | Vitest | every PR, Node 24 and 26 | required, 100% coverage of `src/` except `src/entry/` |
 | MCP contract | Vitest plus `InMemoryTransport` client | every PR | required |
 | Agent eval (planned) | `evals/run.ts`, cheapest Claude model that passes, temperature 0 | same-repo PRs that touch `src/` or `evals/` | required, pass threshold 28/30 |
 | Manual | MCP Inspector, Claude Desktop, Claude Code | before each tag | checklist |
