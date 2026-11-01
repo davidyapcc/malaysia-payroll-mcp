@@ -111,7 +111,7 @@ pnpm install
 pnpm check          # generated tables, Biome lint and format check, tsc, Vitest
 pnpm gen:tables     # regenerate src/tables/generated/ after editing docs/data/
 pnpm test:coverage  # tests with v8 coverage
-pnpm eval           # run 35-case two-layer agent eval (requires ANTHROPIC_API_KEY)
+pnpm eval           # run 35-case two-layer agent eval (uses ANTHROPIC_API_KEY, OPENAI_API_KEY, or offline fallback)
 pnpm build          # compile to dist/
 ```
 

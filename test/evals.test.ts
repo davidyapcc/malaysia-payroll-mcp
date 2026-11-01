@@ -19,6 +19,7 @@ import {
 } from "../evals/grading.js";
 import {
   type AnthropicClientLike,
+  createOpenAiClient,
   type MessagesCreateParams,
   type MessagesResponseLike,
   runEvalSuite,
@@ -370,5 +371,100 @@ describe("End-to-end eval harness over all 35 golden cases (in-memory MCP server
     const md = renderScorecardMarkdown(failedScorecard);
     expect(md).toContain("## Gate Failures");
     expect(md).toContain("| EPF-01 | `calculate_epf` | FAIL |");
+  });
+
+  it("adapts OpenAI Chat Completions tool calls and responses via createOpenAiClient", async () => {
+    const requests: unknown[] = [];
+    const mockFetch: typeof fetch = async (_input, init) => {
+      requests.push(JSON.parse(String(init?.body ?? "{}")));
+      if (requests.length === 1) {
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                finish_reason: "tool_calls",
+                message: {
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: "call_1",
+                      type: "function",
+                      function: {
+                        name: "calculate_epf",
+                        arguments: JSON.stringify({
+                          monthlySalary: 3000,
+                          age: 30,
+                          citizenship: "malaysian",
+                          payPeriod: "2026-11",
+                        }),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: "Employee RM 330.00, Employer RM 390.00.",
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    };
+
+    const client = createOpenAiClient("sk-test-openai", "https://api.openai.com/v1", mockFetch);
+    const first = await client.messages.create({
+      model: "gpt-4o-mini",
+      max_tokens: 512,
+      temperature: 0,
+      system: "sys",
+      tools: [
+        {
+          name: "calculate_epf",
+          description: "desc",
+          input_schema: { type: "object", properties: {} },
+        },
+      ],
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    expect(first.stop_reason).toBe("tool_use");
+    expect(first.content[0]).toMatchObject({
+      type: "tool_use",
+      id: "call_1",
+      name: "calculate_epf",
+      input: { monthlySalary: 3000, age: 30, citizenship: "malaysian", payPeriod: "2026-11" },
+    });
+
+    const second = await client.messages.create({
+      model: "gpt-4o-mini",
+      max_tokens: 512,
+      temperature: 0,
+      system: "sys",
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: first.content as never },
+        {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "call_1", content: "{}" }],
+        },
+      ],
+    });
+
+    expect(second.stop_reason).toBe("end_turn");
+    expect(second.content[0]).toEqual({
+      type: "text",
+      text: "Employee RM 330.00, Employer RM 390.00.",
+    });
   });
 });

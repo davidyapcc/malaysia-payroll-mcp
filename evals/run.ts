@@ -32,6 +32,8 @@ import {
 
 export const DEFAULT_AGENT_MODEL = "claude-haiku-4-5";
 export const DEFAULT_JUDGE_MODEL = "claude-haiku-4-5";
+export const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_CONCURRENCY = 5;
 const MAX_AGENT_TOKENS = 1024;
 const MAX_JUDGE_TOKENS = 512;
@@ -363,6 +365,146 @@ export function createOfflineAnthropicClient(specs: readonly EvalSpec[]): Anthro
   };
 }
 
+/**
+ * OpenAI Chat Completions adapter implementing AnthropicClientLike via native fetch,
+ * allowing OPENAI_API_KEY to be used as a drop-in alternative to ANTHROPIC_API_KEY.
+ */
+export function createOpenAiClient(
+  apiKey: string,
+  baseUrl = process.env.OPENAI_BASE_URL ?? DEFAULT_OPENAI_BASE_URL,
+  fetchFn: typeof fetch = fetch,
+): AnthropicClientLike {
+  const endpoint = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
+
+  return {
+    messages: {
+      async create(params: MessagesCreateParams): Promise<MessagesResponseLike> {
+        const openAiMessages: Record<string, unknown>[] = [
+          { role: "system", content: params.system },
+        ];
+
+        for (const msg of params.messages) {
+          if (typeof msg.content === "string") {
+            openAiMessages.push({ role: msg.role, content: msg.content });
+            continue;
+          }
+
+          if (msg.role === "assistant" && Array.isArray(msg.content)) {
+            const blocks = msg.content as unknown as ContentBlockLike[];
+            const textParts = blocks
+              .filter((b) => b.type === "text" && typeof b.text === "string")
+              .map((b) => b.text ?? "");
+            const toolCalls = blocks
+              .filter(
+                (b) =>
+                  b.type === "tool_use" && typeof b.id === "string" && typeof b.name === "string",
+              )
+              .map((b) => ({
+                id: b.id,
+                type: "function",
+                function: {
+                  name: b.name,
+                  arguments: JSON.stringify(b.input ?? {}),
+                },
+              }));
+
+            openAiMessages.push({
+              role: "assistant",
+              content: textParts.length > 0 ? textParts.join("\n") : null,
+              ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+            });
+            continue;
+          }
+
+          if (msg.role === "user" && Array.isArray(msg.content)) {
+            for (const block of msg.content as ToolResultBlockParam[]) {
+              if (block.type === "tool_result") {
+                openAiMessages.push({
+                  role: "tool",
+                  tool_call_id: block.tool_use_id,
+                  content: typeof block.content === "string" ? block.content : "",
+                });
+              }
+            }
+          }
+        }
+
+        const openAiTools = params.tools?.map((tool) => ({
+          type: "function",
+          function: {
+            name: tool.name,
+            description: tool.description ?? "",
+            parameters: tool.input_schema,
+          },
+        }));
+
+        const response = await fetchFn(endpoint, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: params.model,
+            max_completion_tokens: params.max_tokens,
+            temperature: params.temperature,
+            messages: openAiMessages,
+            ...(openAiTools !== undefined && openAiTools.length > 0 ? { tools: openAiTools } : {}),
+          }),
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`OpenAI API error (${response.status}): ${errText}`);
+        }
+
+        const data = (await response.json()) as {
+          choices?: {
+            finish_reason?: string | null;
+            message?: {
+              content?: string | null;
+              tool_calls?: {
+                id: string;
+                function: { name: string; arguments: string };
+              }[];
+            };
+          }[];
+        };
+
+        const choice = data.choices?.[0];
+        const message = choice?.message;
+        const content: ContentBlockLike[] = [];
+
+        if (typeof message?.content === "string" && message.content.length > 0) {
+          content.push({ type: "text", text: message.content });
+        }
+
+        if (Array.isArray(message?.tool_calls)) {
+          for (const tc of message.tool_calls) {
+            let parsedArgs: unknown = {};
+            try {
+              parsedArgs = JSON.parse(tc.function.arguments || "{}");
+            } catch {
+              parsedArgs = {};
+            }
+            content.push({
+              type: "tool_use",
+              id: tc.id,
+              name: tc.function.name,
+              input: parsedArgs,
+            });
+          }
+        }
+
+        return {
+          stop_reason: choice?.finish_reason === "tool_calls" ? "tool_use" : "end_turn",
+          content,
+        };
+      },
+    },
+  };
+}
+
 /** Runs the full eval suite with bounded concurrency and returns the scorecard. */
 export async function runEvalSuite(options?: {
   readonly specs?: readonly EvalSpec[];
@@ -373,21 +515,32 @@ export async function runEvalSuite(options?: {
   readonly thresholds?: GateThresholds;
 }): Promise<Scorecard> {
   const specs = options?.specs ?? loadEvalSpecs();
-  const hasApiKey =
-    typeof process.env.ANTHROPIC_API_KEY === "string" &&
-    process.env.ANTHROPIC_API_KEY.trim().length > 0;
-  const useLiveApi = options?.anthropic !== undefined || hasApiKey;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim() ?? "";
+  const openAiKey = process.env.OPENAI_API_KEY?.trim() ?? "";
+  const providerPref = process.env.EVAL_PROVIDER?.trim().toLowerCase();
 
-  const agentModel =
-    options?.agentModel ??
-    (useLiveApi
-      ? (process.env.EVAL_AGENT_MODEL ?? DEFAULT_AGENT_MODEL)
-      : "offline-deterministic-agent");
-  const judgeModel =
-    options?.judgeModel ??
-    (useLiveApi
-      ? (process.env.EVAL_JUDGE_MODEL ?? DEFAULT_JUDGE_MODEL)
-      : "offline-deterministic-judge");
+  const useOpenAi =
+    options?.anthropic === undefined &&
+    (providerPref === "openai" ||
+      (providerPref !== "anthropic" && anthropicKey === "" && openAiKey !== ""));
+  const useAnthropic =
+    options?.anthropic === undefined &&
+    !useOpenAi &&
+    providerPref !== "offline" &&
+    anthropicKey !== "";
+  const defaultModel = useOpenAi
+    ? DEFAULT_OPENAI_MODEL
+    : useAnthropic || options?.anthropic !== undefined
+      ? DEFAULT_AGENT_MODEL
+      : "offline-deterministic-agent";
+  const defaultJudge = useOpenAi
+    ? DEFAULT_OPENAI_MODEL
+    : useAnthropic || options?.anthropic !== undefined
+      ? DEFAULT_JUDGE_MODEL
+      : "offline-deterministic-judge";
+
+  const agentModel = options?.agentModel ?? process.env.EVAL_AGENT_MODEL ?? defaultModel;
+  const judgeModel = options?.judgeModel ?? process.env.EVAL_JUDGE_MODEL ?? defaultJudge;
   const concurrency = Math.max(
     1,
     options?.concurrency ?? Number(process.env.EVAL_CONCURRENCY ?? DEFAULT_CONCURRENCY),
@@ -395,9 +548,11 @@ export async function runEvalSuite(options?: {
   const thresholds = options?.thresholds ?? DEFAULT_THRESHOLDS;
   const anthropic: AnthropicClientLike =
     options?.anthropic ??
-    (hasApiKey
-      ? (new Anthropic() as unknown as AnthropicClientLike)
-      : createOfflineAnthropicClient(specs));
+    (useOpenAi
+      ? createOpenAiClient(openAiKey)
+      : useAnthropic
+        ? (new Anthropic() as unknown as AnthropicClientLike)
+        : createOfflineAnthropicClient(specs));
 
   const mcpClient = await createInMemoryMcpClient();
   try {
@@ -465,9 +620,9 @@ const isMain =
   process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (isMain) {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.ANTHROPIC_API_KEY?.trim() && !process.env.OPENAI_API_KEY?.trim()) {
     console.log(
-      "ANTHROPIC_API_KEY is not set; running deterministic offline harness against in-memory MCP server.",
+      "Neither ANTHROPIC_API_KEY nor OPENAI_API_KEY is set; running deterministic offline harness against in-memory MCP server.",
     );
   }
 
