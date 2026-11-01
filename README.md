@@ -2,7 +2,7 @@
 
 An MCP server that works out Malaysian statutory payroll deductions (EPF, SOCSO, SKBBK, EIS and MTD/PCB) for one employee's monthly salary, and cites the official rate table or rule behind every number.
 
-**Status: pre-release.** EPF, SOCSO, SKBBK, EIS, MTD and net pay are in. An agent eval is planned. Tagged releases are on GitHub, with changes listed in the [changelog](CHANGELOG.md); nothing is published to npm yet.
+**Status: pre-release.** EPF, SOCSO, SKBBK, EIS, MTD, net pay and the 35-case two-layer agent eval are in. Tagged releases are on GitHub, with changes listed in the [changelog](CHANGELOG.md); nothing is published to npm yet.
 
 ## Tools
 
@@ -111,6 +111,7 @@ pnpm install
 pnpm check          # generated tables, Biome lint and format check, tsc, Vitest
 pnpm gen:tables     # regenerate src/tables/generated/ after editing docs/data/
 pnpm test:coverage  # tests with v8 coverage
+pnpm eval           # run 35-case two-layer agent eval (requires ANTHROPIC_API_KEY)
 pnpm build          # compile to dist/
 ```
 

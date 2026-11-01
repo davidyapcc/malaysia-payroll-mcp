@@ -4,7 +4,7 @@ Status: design decided Oct 24, 2026, after an architecture review; partly built.
 
 The goal is statutory payroll numbers an agent can rely on: correct, traceable to an official source, and tested. Where goals conflict, choose what someone can see and verify: tests, provenance and a citation behind every number.
 
-**Built today:** `calculate_epf`, `calculate_socso_eis`, `calculate_mtd`, `calculate_net_pay`, the rate tables and their resources, the stdio entry point, and CI for lint, types, generated tables and tests. Tagged releases are on GitHub. **Planned, not built:** everything marked "planned" below, including the agent eval, the hosted endpoint, npm publishing and the MCP Registry listing.
+**Built today:** `calculate_epf`, `calculate_socso_eis`, `calculate_mtd`, `calculate_net_pay`, the rate tables and their resources, the stdio entry point, the two-layer agent eval (`evals/`), and CI for lint, types, generated tables, tests and agent evals. Tagged releases are on GitHub. **Planned, not built:** everything marked "planned" below, including the hosted endpoint, npm publishing and the MCP Registry listing.
 
 ## Repository layout
 
@@ -49,9 +49,10 @@ malaysia-payroll-mcp/
 ├── test/
 │   ├── golden/cases.json      # one file, IDs match golden-cases.md
 │   └── *.test.ts
-├── evals/                     # planned
-│   ├── cases.jsonl            # about 30 prompts with expected tool, args and total
-│   └── run.ts
+├── evals/
+│   ├── cases.jsonl            # 35 prompts paired 1:1 with test/golden/cases.json
+│   ├── grading.ts             # Layer 1 deterministic checks, Layer 2 rubric parser and scorecard
+│   └── run.ts                 # Anthropic SDK agent + judge loop over InMemoryTransport
 ├── server.json                # planned: MCP Registry manifest
 └── .github/
     ├── dependabot.yml
@@ -73,7 +74,7 @@ malaysia-payroll-mcp/
 | Build | plain `tsc`, no bundler. With TS 6 or later, add `"types": ["node"]` to tsconfig (the SDK's types reference `Buffer`). |
 | Lint and format | Biome |
 | Tests | Vitest with v8 coverage |
-| Agent eval (planned) | custom `evals/run.ts`: Anthropic SDK tool-use loop against the server through `InMemoryTransport` |
+| Agent eval | `evals/run.ts`: Anthropic SDK tool-use loop plus LLM-as-judge rubric over `InMemoryTransport` (ADR 0004) |
 | Hosting (planned, v1.1) | Cloudflare Workers. AWS Lambda may be tried later as a learning exercise. |
 
 ## Key design decisions
@@ -121,10 +122,10 @@ Resources: `payroll://tables/{kind}/{effectiveFrom}`, for example `payroll://tab
 | Generated tables up to date | `pnpm gen:tables:check` (fails on any changed, missing or stale generated file) | every PR | required |
 | Golden unit tests | Vitest | every PR, Node 24 and 26 | required, 100% coverage of `src/` except `src/entry/` |
 | MCP contract | Vitest plus `InMemoryTransport` client | every PR | required |
-| Agent eval (planned) | `evals/run.ts`, cheapest Claude model that passes, temperature 0 | same-repo PRs that touch `src/` or `evals/` | required, pass threshold 28/30 |
+| Agent eval | `evals/run.ts`, `claude-haiku-4-5`, temperature 0 (ADR 0004) | same-repo PRs and `main` pushes touching `src/`, `evals/`, or golden cases | required: Layer 1 >= 33/35, Layer 2 mean >= 4.0/5.0, 0 hallucinated citations |
 | Manual | MCP Inspector, Claude Desktop, Claude Code | before each tag | checklist |
 
-**Eval cost and key exposure (planned).** Every eval run spends Claude API credits, and fork PRs can't see secrets. So the eval runs only on same-repo PRs (`pull_request` event, never `pull_request_target`), and fork PRs run unit tests only. It uses the cheapest capable model, runs cases in parallel with a hard `max_tokens`, is skipped when `src/` and `evals/` are unchanged, and the API key has a monthly spend limit.
+**Eval cost and key exposure.** Every eval run spends Claude API credits, and fork PRs can't see secrets. So the eval runs only on same-repo PRs (`pull_request` event, never `pull_request_target`), and fork PRs run unit tests only. It uses `claude-haiku-4-5` at temperature 0, runs cases with bounded concurrency (5) and hard `max_tokens` limits, emits JSON and Markdown scorecards (`evals/results/scorecard.{json,md}` and `$GITHUB_STEP_SUMMARY`), is skipped when `src/` and `evals/` are unchanged, and the API key has a monthly spend limit.
 
 ## Release and infrastructure
 
