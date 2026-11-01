@@ -22,7 +22,11 @@ if (isMain) {
     concurrency: parseConcurrency(process.env.EVAL_CONCURRENCY),
     serverModuleSpecifier: "../dist/mcp/server.js",
   });
-  const { jsonPath, markdownPath } = writeScorecardFiles(scorecard);
+  const { jsonPath, markdownPath } = writeScorecardFiles(
+    scorecard,
+    undefined,
+    process.env.GITHUB_STEP_SUMMARY,
+  );
 
   console.log(renderScorecardMarkdown(scorecard));
   console.log(`Scorecard written to ${jsonPath} and ${markdownPath}`);

@@ -357,11 +357,11 @@ async function runWorkers(params: {
   return results;
 }
 
-/** Writes the JSON and Markdown scorecards to disk (and GITHUB_STEP_SUMMARY when in CI). */
+/** Writes the JSON and Markdown scorecards to disk (and GITHUB_STEP_SUMMARY when provided). */
 export function writeScorecardFiles(
   scorecard: Scorecard,
   outDir = resolve(dirname(fileURLToPath(import.meta.url)), "results"),
-  stepSummaryPath = process.env.GITHUB_STEP_SUMMARY,
+  stepSummaryPath?: string,
 ): { readonly jsonPath: string; readonly markdownPath: string } {
   mkdirSync(outDir, { recursive: true });
   const jsonPath = join(outDir, "scorecard.json");
@@ -371,7 +371,7 @@ export function writeScorecardFiles(
   writeFileSync(jsonPath, `${JSON.stringify(scorecard, null, 2)}\n`, "utf8");
   writeFileSync(markdownPath, markdown, "utf8");
 
-  if (stepSummaryPath !== undefined && stepSummaryPath !== "") {
+  if (stepSummaryPath) {
     appendFileSync(stepSummaryPath, `${markdown}\n`, "utf8");
   }
   return { jsonPath, markdownPath };
