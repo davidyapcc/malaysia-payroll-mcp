@@ -1,5 +1,5 @@
 // Pure grading, canonicalization and scorecard formatting for the two-layer agent eval (ADR 0004).
-import { readFileSync } from "node:fs";
+import * as z from "zod";
 
 export type ToolName =
   | "calculate_epf"
@@ -7,26 +7,50 @@ export type ToolName =
   | "calculate_mtd"
   | "calculate_net_pay";
 
-export interface EvalPromptEntry {
-  readonly id: string;
-  readonly prompt: string;
-}
+export const MIN_RUBRIC_SCORE = 1;
+export const MAX_RUBRIC_SCORE = 5;
+export const FAITHFUL_CITATION_FLOOR = 3;
 
-export interface GoldenCaseEntry {
-  readonly id: string;
-  readonly input: Record<string, unknown>;
-  readonly expected?: Record<string, unknown>;
-  readonly error?: string;
-}
+const AMOUNT_TOLERANCE = 1e-6;
+const PERCENT_SCALE = 100;
+const RUBRIC_DIMENSION_COUNT = 3;
+const EIS_AGE_MIN = 57;
+const EIS_AGE_MAX = 59;
 
-export interface GoldenFile {
-  readonly epf: readonly GoldenCaseEntry[];
-  readonly socsoEis: readonly GoldenCaseEntry[];
-  readonly mtd: readonly GoldenCaseEntry[];
-  readonly netPay: readonly GoldenCaseEntry[];
-}
+const evalPromptSchema = z.object({
+  id: z.string().trim().min(1),
+  prompt: z.string().trim().min(1),
+});
 
-export interface EvalSpec {
+const goldenCaseSchema = z.object({
+  id: z.string().min(1),
+  input: z.record(z.string(), z.unknown()),
+  expected: z.record(z.string(), z.unknown()).optional(),
+  error: z.string().min(1).optional(),
+});
+
+export const goldenFileSchema = z.object({
+  epf: z.array(goldenCaseSchema),
+  socsoEis: z.array(goldenCaseSchema),
+  mtd: z.array(goldenCaseSchema),
+  netPay: z.array(goldenCaseSchema),
+});
+
+const rubricDimensionSchema = z.number().int().min(MIN_RUBRIC_SCORE).max(MAX_RUBRIC_SCORE);
+
+const judgeResponseSchema = z.object({
+  citationFaithfulness: rubricDimensionSchema,
+  completeness: rubricDimensionSchema,
+  clarity: rubricDimensionSchema,
+  hallucinatedCitation: z.boolean(),
+  rationale: z.string().trim().min(1),
+});
+
+export type EvalPromptEntry = z.infer<typeof evalPromptSchema>;
+export type GoldenCaseEntry = z.infer<typeof goldenCaseSchema>;
+export type GoldenFile = z.infer<typeof goldenFileSchema>;
+
+export interface EvalCase {
   readonly id: string;
   readonly prompt: string;
   readonly expectedTool: ToolName;
@@ -44,12 +68,12 @@ export interface RecordedToolCall {
 }
 
 export interface Layer1Result {
-  readonly passed: boolean;
-  readonly toolSelected: boolean;
-  readonly argsMatched: boolean;
-  readonly toolOutputMatched: boolean;
-  readonly numbersInProse: boolean;
-  readonly missingNumbers: readonly number[];
+  readonly isPassed: boolean;
+  readonly hasExpectedTool: boolean;
+  readonly hasMatchingArgs: boolean;
+  readonly hasMatchingToolOutput: boolean;
+  readonly hasExpectedProseAmounts: boolean;
+  readonly missingAmounts: readonly number[];
   readonly failureReasons: readonly string[];
 }
 
@@ -57,7 +81,7 @@ export interface RubricScore {
   readonly citationFaithfulness: number;
   readonly completeness: number;
   readonly clarity: number;
-  readonly hallucinatedCitation: boolean;
+  readonly hasHallucinatedCitation: boolean;
   readonly rationale: string;
 }
 
@@ -89,7 +113,7 @@ export interface Scorecard {
   readonly agentModel: string;
   readonly judgeModel: string;
   readonly totalCases: number;
-  readonly gatePassed: boolean;
+  readonly isGatePassed: boolean;
   readonly gateFailures: readonly string[];
   readonly thresholds: GateThresholds;
   readonly layer1Summary: {
@@ -99,7 +123,7 @@ export interface Scorecard {
     readonly toolSelectionPassed: number;
     readonly argsMatchedPassed: number;
     readonly toolOutputMatchedPassed: number;
-    readonly numbersInProsePassed: number;
+    readonly proseAmountsPassed: number;
   };
   readonly layer2Summary: {
     readonly meanCitationFaithfulness: number;
@@ -111,7 +135,7 @@ export interface Scorecard {
   readonly cases: readonly CaseEvaluation[];
 }
 
-/** Parses evals/cases.jsonl into prompt entries. */
+/** Parses evals/cases.jsonl into validated prompt entries. */
 export function parseCasesJsonl(jsonlText: string): EvalPromptEntry[] {
   const lines = jsonlText
     .replace(/\r\n/g, "\n")
@@ -121,51 +145,33 @@ export function parseCasesJsonl(jsonlText: string): EvalPromptEntry[] {
 
   return lines.map((line, index) => {
     const parsed: unknown = JSON.parse(line);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      throw new Error(`cases.jsonl:${index + 1}: expected a JSON object.`);
+    const result = evalPromptSchema.safeParse(parsed);
+    if (!result.success) {
+      throw new Error(`cases.jsonl:${index + 1}: ${result.error.message}`);
     }
-    const { id, prompt } = parsed as Record<string, unknown>;
-    if (typeof id !== "string" || id.trim() === "") {
-      throw new Error(`cases.jsonl:${index + 1}: missing non-empty string "id".`);
-    }
-    if (typeof prompt !== "string" || prompt.trim() === "") {
-      throw new Error(`cases.jsonl:${index + 1}: missing non-empty string "prompt".`);
-    }
-    return { id, prompt };
+    return result.data;
   });
 }
 
-/** Pairs every golden case in test/golden/cases.json with its natural-language prompt. */
-export function buildEvalSpecs(
+/** Pairs every golden case in test/golden/cases.json with its natural-language eval case. */
+export function buildEvalCases(
   golden: GoldenFile,
   prompts: readonly EvalPromptEntry[],
-): EvalSpec[] {
-  const goldenById = new Map<string, { tool: ToolName; entry: GoldenCaseEntry }>();
-  const register = (tool: ToolName, entries: readonly GoldenCaseEntry[]) => {
-    for (const entry of entries) {
-      goldenById.set(entry.id, { tool, entry });
-    }
-  };
-  register("calculate_epf", golden.epf);
-  register("calculate_socso_eis", golden.socsoEis);
-  register("calculate_mtd", golden.mtd);
-  register("calculate_net_pay", golden.netPay);
-
+): EvalCase[] {
+  const goldenById = indexGoldenCases(golden);
   const seenIds = new Set<string>();
-  const specs: EvalSpec[] = [];
+  const evalCases: EvalCase[] = [];
 
   for (const item of prompts) {
     if (seenIds.has(item.id)) {
       throw new Error(`Duplicate eval case ID "${item.id}" in cases.jsonl.`);
     }
     seenIds.add(item.id);
-
     const match = goldenById.get(item.id);
     if (match === undefined) {
       throw new Error(`Eval case "${item.id}" does not exist in test/golden/cases.json.`);
     }
-
-    specs.push({
+    evalCases.push({
       id: item.id,
       prompt: item.prompt,
       expectedTool: match.tool,
@@ -180,101 +186,117 @@ export function buildEvalSpecs(
       throw new Error(`Golden case "${id}" has no prompt in evals/cases.jsonl.`);
     }
   }
-
-  return specs;
+  return evalCases;
 }
 
-/** Loads eval specs from disk using the repo's golden cases and evals/cases.jsonl. */
-export function loadEvalSpecs(
-  casesJsonlUrl = new URL("./cases.jsonl", import.meta.url),
-  goldenJsonUrl = new URL("../test/golden/cases.json", import.meta.url),
-): EvalSpec[] {
-  const jsonlText = readFileSync(casesJsonlUrl, "utf8");
-  const golden = JSON.parse(readFileSync(goldenJsonUrl, "utf8")) as GoldenFile;
-  return buildEvalSpecs(golden, parseCasesJsonl(jsonlText));
+function indexGoldenCases(
+  golden: GoldenFile,
+): Map<string, { tool: ToolName; entry: GoldenCaseEntry }> {
+  const map = new Map<string, { tool: ToolName; entry: GoldenCaseEntry }>();
+  const groups: readonly [ToolName, readonly GoldenCaseEntry[]][] = [
+    ["calculate_epf", golden.epf],
+    ["calculate_socso_eis", golden.socsoEis],
+    ["calculate_mtd", golden.mtd],
+    ["calculate_net_pay", golden.netPay],
+  ];
+  for (const [tool, entries] of groups) {
+    for (const entry of entries) {
+      map.set(entry.id, { tool, entry });
+    }
+  }
+  return map;
 }
 
 /**
- * Normalizes tool arguments by applying documented schema defaults and stripping fields the
+ * Normalizes tool arguments by applying documented schema defaults and omitting fields the
  * tool schema documents as ignored (such as resident-only fields when `taxResident: false`).
  */
 export function canonicalizeArgs(
   tool: ToolName,
   rawArgs: Record<string, unknown>,
 ): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...rawArgs };
+  const omitKeys = new Set<string>();
+  const extra: Record<string, unknown> = {};
 
   if (tool === "calculate_epf" || tool === "calculate_net_pay") {
-    out.registeredWithEpfBefore1Aug1998 = Boolean(out.registeredWithEpfBefore1Aug1998 ?? false);
+    extra.registeredWithEpfBefore1Aug1998 = Boolean(
+      rawArgs.registeredWithEpfBefore1Aug1998 ?? false,
+    );
   }
-
   if (tool === "calculate_socso_eis" || tool === "calculate_net_pay") {
-    out.skbbkStatus = out.skbbkStatus ?? "covered";
-    if (typeof out.age === "number" && (out.age < 57 || out.age > 59)) {
-      delete out.eisPayableBefore57;
+    extra.skbbkStatus = rawArgs.skbbkStatus ?? "covered";
+    if (
+      typeof rawArgs.age === "number" &&
+      (rawArgs.age < EIS_AGE_MIN || rawArgs.age > EIS_AGE_MAX)
+    ) {
+      omitKeys.add("eisPayableBefore57");
     }
   }
-
   if (tool === "calculate_mtd" || tool === "calculate_net_pay") {
-    const taxResident = out.taxResident ?? true;
-    out.taxResident = taxResident;
-
-    if (taxResident === false) {
-      delete out.taxCategory;
-      delete out.children;
-      delete out.tp1Reliefs;
-      delete out.yearToDate;
-    } else {
-      out.children = out.children ?? 0;
-      out.tp1Reliefs = out.tp1Reliefs ?? 0;
-      const isJanuary = typeof out.payPeriod === "string" && out.payPeriod.endsWith("-01");
-      if (isJanuary) {
-        delete out.yearToDate;
-      } else if (
-        typeof out.yearToDate === "object" &&
-        out.yearToDate !== null &&
-        !Array.isArray(out.yearToDate)
-      ) {
-        const ytd = out.yearToDate as Record<string, unknown>;
-        out.yearToDate = {
-          ...ytd,
-          tp1Reliefs: ytd.tp1Reliefs ?? 0,
-        };
-      }
-    }
+    applyMtdDefaults(rawArgs, extra, omitKeys);
   }
 
-  return sortObjectKeys(out);
+  const merged: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries({ ...rawArgs, ...extra })) {
+    if (!omitKeys.has(key) && value !== undefined) {
+      merged[key] = value;
+    }
+  }
+  return sortObjectKeys(merged);
 }
 
-function sortObjectKeys(value: unknown): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return {};
+function applyMtdDefaults(
+  rawArgs: Record<string, unknown>,
+  extra: Record<string, unknown>,
+  omitKeys: Set<string>,
+): void {
+  const taxResident = rawArgs.taxResident ?? true;
+  extra.taxResident = taxResident;
+
+  if (taxResident === false) {
+    for (const key of ["taxCategory", "children", "tp1Reliefs", "yearToDate"]) {
+      omitKeys.add(key);
+    }
+    return;
   }
+
+  extra.children = rawArgs.children ?? 0;
+  extra.tp1Reliefs = rawArgs.tp1Reliefs ?? 0;
+  const isJanuary = typeof rawArgs.payPeriod === "string" && rawArgs.payPeriod.endsWith("-01");
+  if (isJanuary) {
+    omitKeys.add("yearToDate");
+  } else if (isPlainObject(rawArgs.yearToDate)) {
+    extra.yearToDate = {
+      ...rawArgs.yearToDate,
+      tp1Reliefs: rawArgs.yearToDate.tp1Reliefs ?? 0,
+    };
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function sortObjectKeys(value: Record<string, unknown>): Record<string, unknown> {
   const sorted: Record<string, unknown> = {};
   for (const key of Object.keys(value).sort()) {
-    const entry = (value as Record<string, unknown>)[key];
-    if (entry === undefined) continue;
-    sorted[key] =
-      typeof entry === "object" && entry !== null && !Array.isArray(entry)
-        ? sortObjectKeys(entry)
-        : entry;
+    const entry = value[key];
+    sorted[key] = isPlainObject(entry) ? sortObjectKeys(entry) : entry;
   }
   return sorted;
 }
 
+function pickField(obj: unknown, key: string): unknown {
+  return isPlainObject(obj) ? obj[key] : undefined;
+}
+
 /** Deep subset check: every key/value in `expected` must match `actual`. */
 export function matchesExpectedObject(actual: unknown, expected: Record<string, unknown>): boolean {
-  if (typeof actual !== "object" || actual === null || Array.isArray(actual)) {
-    return false;
-  }
-  const record = actual as Record<string, unknown>;
+  if (!isPlainObject(actual)) return false;
   for (const [key, expectedVal] of Object.entries(expected)) {
-    const actualVal = record[key];
-    if (typeof expectedVal === "object" && expectedVal !== null && !Array.isArray(expectedVal)) {
-      if (!matchesExpectedObject(actualVal, expectedVal as Record<string, unknown>)) {
-        return false;
-      }
+    const actualVal = actual[key];
+    if (isPlainObject(expectedVal)) {
+      if (!matchesExpectedObject(actualVal, expectedVal)) return false;
     } else if (!Object.is(actualVal, expectedVal)) {
       return false;
     }
@@ -283,84 +305,71 @@ export function matchesExpectedObject(actual: unknown, expected: Record<string, 
 }
 
 /**
- * Extracts the headline statutory RM figures from a golden case's `expected` object that must
+ * Extracts every headline statutory RM figure from a golden case's `expected` object that must
  * appear in the agent's final natural-language answer.
  */
-export function headlineNumbers(spec: EvalSpec): number[] {
-  const expected = spec.expectedOutput;
+export function headlineNumbers(evalCase: EvalCase): number[] {
+  const expected = evalCase.expectedOutput;
   if (expected === undefined) return [];
 
   const nums: number[] = [];
-  const pushNum = (val: unknown) => {
-    if (typeof val === "number" && !nums.includes(val)) {
-      nums.push(val);
+  const pushAll = (values: readonly unknown[]) => {
+    for (const val of values) {
+      if (typeof val === "number" && !nums.includes(val)) nums.push(val);
     }
   };
 
-  switch (spec.expectedTool) {
-    case "calculate_epf": {
-      pushNum(expected.employer);
-      pushNum(expected.employee);
-      break;
-    }
-    case "calculate_socso_eis": {
-      const socso = expected.socso as Record<string, unknown> | undefined;
-      if (socso !== undefined) {
-        pushNum(socso.employer);
-        pushNum(socso.employee);
-      }
-      const skbbk = expected.skbbk as Record<string, unknown> | undefined;
-      if (skbbk !== undefined) {
-        pushNum(skbbk.employee);
-      }
-      const eis = expected.eis as Record<string, unknown> | undefined;
-      if (eis !== undefined) {
-        pushNum(eis.employer);
-        pushNum(eis.employee);
-      }
-      break;
-    }
-    case "calculate_mtd": {
-      pushNum(expected.mtd);
-      break;
-    }
-    case "calculate_net_pay": {
-      pushNum(expected.netPay);
-      const deductions = expected.deductions as Record<string, unknown> | undefined;
-      if (deductions !== undefined) {
-        pushNum(deductions.epf);
-        pushNum(deductions.socso);
-        pushNum(deductions.skbbk);
-        pushNum(deductions.eis);
-        pushNum(deductions.mtd);
-        pushNum(deductions.total);
-      }
-      break;
-    }
+  if (evalCase.expectedTool === "calculate_epf") {
+    pushAll([expected.employer, expected.employee, expected.total]);
+  } else if (evalCase.expectedTool === "calculate_socso_eis") {
+    pushAll([
+      pickField(expected.socso, "employer"),
+      pickField(expected.socso, "employee"),
+      pickField(expected.skbbk, "employee"),
+      pickField(expected.eis, "employer"),
+      pickField(expected.eis, "employee"),
+    ]);
+  } else if (evalCase.expectedTool === "calculate_mtd") {
+    pushAll([expected.mtd]);
+  } else {
+    const ded = expected.deductions;
+    const er = expected.employerContributions;
+    pushAll([
+      expected.netPay,
+      pickField(ded, "epf"),
+      pickField(ded, "socso"),
+      pickField(ded, "skbbk"),
+      pickField(ded, "eis"),
+      pickField(ded, "mtd"),
+      pickField(ded, "total"),
+      pickField(er, "epf"),
+      pickField(er, "socso"),
+      pickField(er, "eis"),
+      pickField(er, "total"),
+      expected.employerCost,
+    ]);
   }
-
   return nums;
 }
 
-const NUMBER_TOKEN_RE = /\b(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\b/g;
-const ZERO_WORD_RE = /\b(?:nil|exempt|none|nothing|zero)\b/i;
+const RM_PREFIXED_RE = /(?:RM|MYR)\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?![\d%]|\.\d)/gi;
+const DECIMAL_MONEY_RE = /(?<![.\d-])(\d{1,3}(?:,\d{3})+|\d+)\.\d{2}(?![\d%]|\.\d)/g;
+const ZERO_WORD_RE = /\b(?:nil|exempt)\b/i;
 
 /**
- * Checks whether a statutory RM figure appears in natural-language prose, matching formatted
- * numbers (`3,000`, `3,000.00`, `3000`, `5.90`, `5.9`) by numeric value rather than substring.
+ * Checks whether a statutory RM figure appears in natural-language prose, matching RM-prefixed
+ * (`RM550.00`, `RM 3,000`) or 2-decimal (`550.00`) amounts without matching ages, years or rates.
  */
 export function containsRmAmount(prose: string, amount: number): boolean {
-  const matches = prose.match(NUMBER_TOKEN_RE) ?? [];
-  for (const token of matches) {
-    const parsed = Number(token.replaceAll(",", ""));
-    if (Math.abs(parsed - amount) < 1e-6) {
-      return true;
+  for (const regex of [RM_PREFIXED_RE, DECIMAL_MONEY_RE]) {
+    for (const match of prose.matchAll(regex)) {
+      const token = match[0].replace(/^(?:RM|MYR)\s*/i, "").replaceAll(",", "");
+      if (Math.abs(Number(token) - amount) < AMOUNT_TOLERANCE) {
+        return true;
+      }
     }
   }
-  if (amount === 0 && ZERO_WORD_RE.test(prose)) {
-    return true;
-  }
-  return false;
+  return amount === 0 && ZERO_WORD_RE.test(prose);
 }
 
 const OPT_OUT_REFUSAL_RE =
@@ -368,121 +377,109 @@ const OPT_OUT_REFUSAL_RE =
 
 /** Evaluates Layer 1 (deterministic tool selection, argument extraction and statutory numbers). */
 export function evaluateLayer1(
-  spec: EvalSpec,
+  evalCase: EvalCase,
   toolCalls: readonly RecordedToolCall[],
   finalAnswer: string,
 ): Layer1Result {
   const failureReasons: string[] = [];
+  const matchingCall = toolCalls.find((call) => call.name === evalCase.expectedTool);
+  const hasExpectedTool = matchingCall !== undefined && toolCalls.length === 1;
+  if (!hasExpectedTool) {
+    const called = toolCalls.length === 0 ? "none" : toolCalls.map((c) => c.name).join(", ");
+    failureReasons.push(`Expected single tool call to "${evalCase.expectedTool}", got: ${called}.`);
+  }
 
-  if (spec.expectedError !== undefined) {
-    const matchingCall = toolCalls.find((call) => call.name === spec.expectedTool);
-    const toolSelected = matchingCall !== undefined || toolCalls.length === 0;
-    if (!toolSelected) {
-      failureReasons.push(
-        `Expected tool "${spec.expectedTool}" or direct refusal, got: ${toolCalls.map((c) => c.name).join(", ")}.`,
-      );
+  const hasMatchingArgs = checkArgsMatch(evalCase, matchingCall, failureReasons);
+  const hasMatchingToolOutput = checkToolOutputMatch(evalCase, matchingCall, failureReasons);
+  const { hasExpectedProseAmounts, missingAmounts } = checkProseMatch(
+    evalCase,
+    finalAnswer,
+    failureReasons,
+  );
+
+  return {
+    isPassed:
+      hasExpectedTool && hasMatchingArgs && hasMatchingToolOutput && hasExpectedProseAmounts,
+    hasExpectedTool,
+    hasMatchingArgs,
+    hasMatchingToolOutput,
+    hasExpectedProseAmounts,
+    missingAmounts,
+    failureReasons,
+  };
+}
+
+function checkArgsMatch(
+  evalCase: EvalCase,
+  matchingCall: RecordedToolCall | undefined,
+  failureReasons: string[],
+): boolean {
+  if (matchingCall === undefined) return false;
+  const expectedCanonical = canonicalizeArgs(evalCase.expectedTool, evalCase.expectedInput);
+  const actualCanonical = canonicalizeArgs(evalCase.expectedTool, matchingCall.arguments);
+  const matched = JSON.stringify(actualCanonical) === JSON.stringify(expectedCanonical);
+  if (!matched) {
+    failureReasons.push(
+      `Arguments mismatch: expected ${JSON.stringify(expectedCanonical)}, got ${JSON.stringify(actualCanonical)}.`,
+    );
+  }
+  return matched;
+}
+
+function checkToolOutputMatch(
+  evalCase: EvalCase,
+  matchingCall: RecordedToolCall | undefined,
+  failureReasons: string[],
+): boolean {
+  if (matchingCall === undefined) return false;
+  if (evalCase.expectedError !== undefined) {
+    const matched =
+      matchingCall.isError && matchingCall.textContent.includes(evalCase.expectedError);
+    if (!matched) {
+      failureReasons.push(`Expected tool error containing "${evalCase.expectedError}".`);
     }
+    return matched;
+  }
+  if (matchingCall.isError || matchingCall.structuredContent === undefined) {
+    failureReasons.push(`Tool call returned error: ${matchingCall.textContent}`);
+    return false;
+  }
+  if (
+    evalCase.expectedOutput !== undefined &&
+    !matchesExpectedObject(matchingCall.structuredContent, evalCase.expectedOutput)
+  ) {
+    failureReasons.push("Tool structuredContent did not match golden expected output.");
+    return false;
+  }
+  return true;
+}
 
-    let argsMatched = true;
-    let toolOutputMatched = true;
-    if (matchingCall !== undefined) {
-      const expectedCanonical = canonicalizeArgs(spec.expectedTool, spec.expectedInput);
-      const expectedCoveredCanonical = canonicalizeArgs(spec.expectedTool, {
-        ...spec.expectedInput,
-        skbbkStatus: "covered",
-      });
-      const actualCanonical = canonicalizeArgs(spec.expectedTool, matchingCall.arguments);
-      argsMatched =
-        JSON.stringify(actualCanonical) === JSON.stringify(expectedCanonical) ||
-        JSON.stringify(actualCanonical) === JSON.stringify(expectedCoveredCanonical);
-      if (!argsMatched) {
-        failureReasons.push(
-          `Tool arguments ${JSON.stringify(actualCanonical)} did not match expected ${JSON.stringify(expectedCanonical)}.`,
-        );
-      }
-      if (
-        matchingCall.arguments.skbbkStatus === "opted_out" &&
-        (!matchingCall.isError || !matchingCall.textContent.includes(spec.expectedError))
-      ) {
-        toolOutputMatched = false;
-        failureReasons.push(`Expected tool error containing "${spec.expectedError}".`);
-      }
-    }
-
-    const mentionsSkbbk = /skbbk|lindung\s*24\s*jam/i.test(finalAnswer);
-    const explainsRefusal = OPT_OUT_REFUSAL_RE.test(finalAnswer);
-    const numbersInProse = mentionsSkbbk && explainsRefusal;
-    if (!numbersInProse) {
+function checkProseMatch(
+  evalCase: EvalCase,
+  finalAnswer: string,
+  failureReasons: string[],
+): { hasExpectedProseAmounts: boolean; missingAmounts: number[] } {
+  if (evalCase.expectedError !== undefined) {
+    const hasExpectedProseAmounts =
+      /skbbk|lindung\s*24\s*jam/i.test(finalAnswer) && OPT_OUT_REFUSAL_RE.test(finalAnswer);
+    if (!hasExpectedProseAmounts) {
       failureReasons.push(
         "Final answer did not clearly explain that foreign workers cannot opt out of SKBBK.",
       );
     }
-
-    return {
-      passed: toolSelected && argsMatched && toolOutputMatched && numbersInProse,
-      toolSelected,
-      argsMatched,
-      toolOutputMatched,
-      numbersInProse,
-      missingNumbers: [],
-      failureReasons,
-    };
+    return { hasExpectedProseAmounts, missingAmounts: [] };
   }
 
-  const matchingCall = toolCalls.find((call) => call.name === spec.expectedTool);
-  const toolSelected = matchingCall !== undefined && toolCalls.length === 1;
-  if (!toolSelected) {
-    const called = toolCalls.length === 0 ? "none" : toolCalls.map((c) => c.name).join(", ");
-    failureReasons.push(`Expected single tool call to "${spec.expectedTool}", got: ${called}.`);
-  }
-
-  let argsMatched = false;
-  let toolOutputMatched = false;
-
-  if (matchingCall !== undefined) {
-    const expectedCanonical = canonicalizeArgs(spec.expectedTool, spec.expectedInput);
-    const actualCanonical = canonicalizeArgs(spec.expectedTool, matchingCall.arguments);
-    argsMatched = JSON.stringify(actualCanonical) === JSON.stringify(expectedCanonical);
-    if (!argsMatched) {
-      failureReasons.push(
-        `Arguments mismatch: expected ${JSON.stringify(expectedCanonical)}, got ${JSON.stringify(actualCanonical)}.`,
-      );
-    }
-
-    if (matchingCall.isError || matchingCall.structuredContent === undefined) {
-      toolOutputMatched = false;
-      failureReasons.push(`Tool call returned error: ${matchingCall.textContent}`);
-    } else if (spec.expectedOutput !== undefined) {
-      toolOutputMatched = matchesExpectedObject(
-        matchingCall.structuredContent,
-        spec.expectedOutput,
-      );
-      if (!toolOutputMatched) {
-        failureReasons.push("Tool structuredContent did not match golden expected output.");
-      }
-    } else {
-      toolOutputMatched = true;
-    }
-  }
-
-  const requiredNumbers = headlineNumbers(spec);
-  const missingNumbers = requiredNumbers.filter((num) => !containsRmAmount(finalAnswer, num));
-  const numbersInProse = missingNumbers.length === 0;
-  if (!numbersInProse) {
+  const missingAmounts = headlineNumbers(evalCase).filter(
+    (num) => !containsRmAmount(finalAnswer, num),
+  );
+  const hasExpectedProseAmounts = missingAmounts.length === 0;
+  if (!hasExpectedProseAmounts) {
     failureReasons.push(
-      `Final answer missing expected RM amounts: ${missingNumbers.map((n) => n.toFixed(2)).join(", ")}.`,
+      `Final answer missing expected RM amounts: ${missingAmounts.map((n) => n.toFixed(2)).join(", ")}.`,
     );
   }
-
-  return {
-    passed: toolSelected && argsMatched && toolOutputMatched && numbersInProse,
-    toolSelected,
-    argsMatched,
-    toolOutputMatched,
-    numbersInProse,
-    missingNumbers,
-    failureReasons,
-  };
+  return { hasExpectedProseAmounts, missingAmounts };
 }
 
 /** Parses and validates the JSON response returned by the LLM judge. */
@@ -500,40 +497,29 @@ export function parseJudgeResponse(rawText: string): RubricScore {
   }
 
   const parsed: unknown = JSON.parse(cleaned.slice(start, end + 1));
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("Judge JSON must be an object.");
+  const validated = judgeResponseSchema.safeParse(parsed);
+  if (!validated.success) {
+    throw new Error(`Invalid judge JSON: ${validated.error.message}`);
   }
 
-  const record = parsed as Record<string, unknown>;
-  const citationFaithfulness = scoreField(record, "citationFaithfulness");
-  const completeness = scoreField(record, "completeness");
-  const clarity = scoreField(record, "clarity");
-  if (typeof record.hallucinatedCitation !== "boolean") {
-    throw new Error('Judge JSON field "hallucinatedCitation" must be a boolean.');
-  }
-  if (typeof record.rationale !== "string" || record.rationale.trim() === "") {
-    throw new Error('Judge JSON field "rationale" must be a non-empty string.');
-  }
-
+  const { citationFaithfulness, completeness, clarity, hallucinatedCitation, rationale } =
+    validated.data;
   return {
     citationFaithfulness,
     completeness,
     clarity,
-    hallucinatedCitation: record.hallucinatedCitation || citationFaithfulness < 3,
-    rationale: record.rationale.trim(),
+    hasHallucinatedCitation: hallucinatedCitation || citationFaithfulness < FAITHFUL_CITATION_FLOOR,
+    rationale,
   };
 }
 
-function scoreField(record: Record<string, unknown>, field: string): number {
-  const value = record[field];
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 5) {
-    throw new Error(`Judge JSON field "${field}" must be an integer from 1 to 5.`);
-  }
-  return value;
+function round2(value: number): number {
+  return Math.round(value * PERCENT_SCALE) / PERCENT_SCALE;
 }
 
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
+function meanOf(cases: readonly CaseEvaluation[], pick: (c: CaseEvaluation) => number): number {
+  if (cases.length === 0) return 0;
+  return round2(cases.reduce((sum, c) => sum + pick(c), 0) / cases.length);
 }
 
 /** Aggregates per-case results into a suite scorecard and evaluates the dual CI gate. */
@@ -542,65 +528,33 @@ export function buildScorecard(params: {
   readonly agentModel: string;
   readonly judgeModel: string;
   readonly thresholds?: GateThresholds;
-  readonly generatedAt?: string;
 }): Scorecard {
   const thresholds = params.thresholds ?? DEFAULT_THRESHOLDS;
-  const total = params.cases.length;
-
-  const passed = params.cases.filter((c) => c.layer1.passed).length;
-  const toolSelectionPassed = params.cases.filter((c) => c.layer1.toolSelected).length;
-  const argsMatchedPassed = params.cases.filter((c) => c.layer1.argsMatched).length;
-  const toolOutputMatchedPassed = params.cases.filter((c) => c.layer1.toolOutputMatched).length;
-  const numbersInProsePassed = params.cases.filter((c) => c.layer1.numbersInProse).length;
-
-  const meanCitationFaithfulness =
-    total === 0
-      ? 0
-      : round2(params.cases.reduce((sum, c) => sum + c.layer2.citationFaithfulness, 0) / total);
-  const meanCompleteness =
-    total === 0
-      ? 0
-      : round2(params.cases.reduce((sum, c) => sum + c.layer2.completeness, 0) / total);
-  const meanClarity =
-    total === 0 ? 0 : round2(params.cases.reduce((sum, c) => sum + c.layer2.clarity, 0) / total);
-  const overallMean =
-    total === 0 ? 0 : round2((meanCitationFaithfulness + meanCompleteness + meanClarity) / 3);
-  const hallucinatedCitations = params.cases.filter((c) => c.layer2.hallucinatedCitation).length;
-
-  const gateFailures: string[] = [];
-  if (passed < thresholds.minLayer1Passed) {
-    gateFailures.push(
-      `Layer 1 deterministic pass count ${passed}/${total} is below threshold ${thresholds.minLayer1Passed}/${total}.`,
-    );
-  }
-  if (overallMean < thresholds.minMeanRubricScore) {
-    gateFailures.push(
-      `Layer 2 mean rubric score ${overallMean.toFixed(2)}/5.00 is below threshold ${thresholds.minMeanRubricScore.toFixed(2)}/5.00.`,
-    );
-  }
-  if (hallucinatedCitations > thresholds.maxHallucinatedCitations) {
-    gateFailures.push(
-      `Layer 2 detected ${hallucinatedCitations} case(s) with hallucinated citations (max allowed: ${thresholds.maxHallucinatedCitations}).`,
-    );
-  }
+  const layer1Summary = summarizeLayer1(params.cases);
+  const meanCitationFaithfulness = meanOf(params.cases, (c) => c.layer2.citationFaithfulness);
+  const meanCompleteness = meanOf(params.cases, (c) => c.layer2.completeness);
+  const meanClarity = meanOf(params.cases, (c) => c.layer2.clarity);
+  const overallMean = round2(
+    (meanCitationFaithfulness + meanCompleteness + meanClarity) / RUBRIC_DIMENSION_COUNT,
+  );
+  const hallucinatedCitations = params.cases.filter((c) => c.layer2.hasHallucinatedCitation).length;
+  const gateFailures = collectGateFailures(
+    layer1Summary.passed,
+    layer1Summary.total,
+    overallMean,
+    hallucinatedCitations,
+    thresholds,
+  );
 
   return {
-    generatedAt: params.generatedAt ?? new Date().toISOString(),
+    generatedAt: new Date().toISOString(),
     agentModel: params.agentModel,
     judgeModel: params.judgeModel,
-    totalCases: total,
-    gatePassed: gateFailures.length === 0,
+    totalCases: layer1Summary.total,
+    isGatePassed: gateFailures.length === 0,
     gateFailures,
     thresholds,
-    layer1Summary: {
-      passed,
-      total,
-      passRate: total === 0 ? 0 : round2((passed / total) * 100),
-      toolSelectionPassed,
-      argsMatchedPassed,
-      toolOutputMatchedPassed,
-      numbersInProsePassed,
-    },
+    layer1Summary,
     layer2Summary: {
       meanCitationFaithfulness,
       meanCompleteness,
@@ -612,11 +566,52 @@ export function buildScorecard(params: {
   };
 }
 
+function summarizeLayer1(cases: readonly CaseEvaluation[]): Scorecard["layer1Summary"] {
+  const total = cases.length;
+  const passed = cases.filter((c) => c.layer1.isPassed).length;
+  return {
+    passed,
+    total,
+    passRate: total === 0 ? 0 : round2((passed / total) * PERCENT_SCALE),
+    toolSelectionPassed: cases.filter((c) => c.layer1.hasExpectedTool).length,
+    argsMatchedPassed: cases.filter((c) => c.layer1.hasMatchingArgs).length,
+    toolOutputMatchedPassed: cases.filter((c) => c.layer1.hasMatchingToolOutput).length,
+    proseAmountsPassed: cases.filter((c) => c.layer1.hasExpectedProseAmounts).length,
+  };
+}
+
+function collectGateFailures(
+  passed: number,
+  total: number,
+  overallMean: number,
+  hallucinatedCitations: number,
+  thresholds: GateThresholds,
+): string[] {
+  const failures: string[] = [];
+  if (passed < thresholds.minLayer1Passed) {
+    failures.push(
+      `Layer 1 deterministic pass count ${passed}/${total} is below threshold ${thresholds.minLayer1Passed}/${total}.`,
+    );
+  }
+  if (overallMean < thresholds.minMeanRubricScore) {
+    failures.push(
+      `Layer 2 mean rubric score ${overallMean.toFixed(2)}/${MAX_RUBRIC_SCORE.toFixed(2)} is below threshold ${thresholds.minMeanRubricScore.toFixed(2)}/${MAX_RUBRIC_SCORE.toFixed(2)}.`,
+    );
+  }
+  if (hallucinatedCitations > thresholds.maxHallucinatedCitations) {
+    failures.push(
+      `Layer 2 detected ${hallucinatedCitations} case(s) with hallucinated citations (max allowed: ${thresholds.maxHallucinatedCitations}).`,
+    );
+  }
+  return failures;
+}
+
 /** Renders the scorecard as a Markdown report for CI job summaries and artifacts. */
 export function renderScorecardMarkdown(scorecard: Scorecard): string {
-  const status = scorecard.gatePassed ? "PASS" : "FAIL";
+  const status = scorecard.isGatePassed ? "PASS" : "FAIL";
   const l1 = scorecard.layer1Summary;
   const l2 = scorecard.layer2Summary;
+  const maxScore = MAX_RUBRIC_SCORE.toFixed(2);
 
   const lines: string[] = [
     `# Malaysia Payroll MCP — Agent Eval Scorecard (${status})`,
@@ -625,19 +620,11 @@ export function renderScorecardMarkdown(scorecard: Scorecard): string {
     `- **Agent model**: \`${scorecard.agentModel}\``,
     `- **Judge model**: \`${scorecard.judgeModel}\``,
     `- **Total cases**: ${scorecard.totalCases}`,
-    `- **CI Gate**: **${status}** (thresholds: Layer 1 >= ${scorecard.thresholds.minLayer1Passed}/${scorecard.totalCases}, Layer 2 mean >= ${scorecard.thresholds.minMeanRubricScore.toFixed(2)}/5.00, hallucinated citations <= ${scorecard.thresholds.maxHallucinatedCitations})`,
+    `- **CI Gate**: **${status}** (thresholds: Layer 1 >= ${scorecard.thresholds.minLayer1Passed}/${scorecard.totalCases}, Layer 2 mean >= ${scorecard.thresholds.minMeanRubricScore.toFixed(2)}/${maxScore}, hallucinated citations <= ${scorecard.thresholds.maxHallucinatedCitations})`,
     "",
-  ];
-
-  if (scorecard.gateFailures.length > 0) {
-    lines.push("## Gate Failures", "");
-    for (const failure of scorecard.gateFailures) {
-      lines.push(`- ${failure}`);
-    }
-    lines.push("");
-  }
-
-  lines.push(
+    ...(scorecard.gateFailures.length > 0
+      ? ["## Gate Failures", "", ...scorecard.gateFailures.map((f) => `- ${f}`), ""]
+      : []),
     "## Layer 1: Deterministic Tool-Use Summary",
     "",
     "| Check | Passed | Total | Rate |",
@@ -645,43 +632,41 @@ export function renderScorecardMarkdown(scorecard: Scorecard): string {
     `| Tool selection | ${l1.toolSelectionPassed} | ${l1.total} | ${rateStr(l1.toolSelectionPassed, l1.total)} |`,
     `| Schema arguments | ${l1.argsMatchedPassed} | ${l1.total} | ${rateStr(l1.argsMatchedPassed, l1.total)} |`,
     `| Tool structured output | ${l1.toolOutputMatchedPassed} | ${l1.total} | ${rateStr(l1.toolOutputMatchedPassed, l1.total)} |`,
-    `| Exact statutory numbers in prose | ${l1.numbersInProsePassed} | ${l1.total} | ${rateStr(l1.numbersInProsePassed, l1.total)} |`,
+    `| Exact statutory numbers in prose | ${l1.proseAmountsPassed} | ${l1.total} | ${rateStr(l1.proseAmountsPassed, l1.total)} |`,
     `| **Overall Layer 1** | **${l1.passed}** | **${l1.total}** | **${l1.passRate.toFixed(1)}%** |`,
     "",
-    "## Layer 2: Model-Based Rubric Summary (1–5)",
+    `## Layer 2: Model-Based Rubric Summary (${MIN_RUBRIC_SCORE}–${MAX_RUBRIC_SCORE})`,
     "",
     "| Dimension | Mean Score |",
     "| --- | --- |",
-    `| Citation faithfulness | ${l2.meanCitationFaithfulness.toFixed(2)} / 5.00 |`,
-    `| Completeness | ${l2.meanCompleteness.toFixed(2)} / 5.00 |`,
-    `| Clarity | ${l2.meanClarity.toFixed(2)} / 5.00 |`,
-    `| **Overall Mean** | **${l2.overallMean.toFixed(2)} / 5.00** |`,
+    `| Citation faithfulness | ${l2.meanCitationFaithfulness.toFixed(2)} / ${maxScore} |`,
+    `| Completeness | ${l2.meanCompleteness.toFixed(2)} / ${maxScore} |`,
+    `| Clarity | ${l2.meanClarity.toFixed(2)} / ${maxScore} |`,
+    `| **Overall Mean** | **${l2.overallMean.toFixed(2)} / ${maxScore}** |`,
     `| Hallucinated citations | ${l2.hallucinatedCitations} |`,
     "",
     "## Per-Case Breakdown",
     "",
     "| ID | Tool | Layer 1 | Cite | Comp | Clar | Hallucinated | Notes |",
     "| --- | --- | --- | --- | --- | --- | --- | --- |",
-  );
-
-  for (const c of scorecard.cases) {
-    const l1Badge = c.layer1.passed ? "PASS" : "FAIL";
-    const hallucinated = c.layer2.hallucinatedCitation ? "YES" : "no";
-    const note =
-      c.layer1.failureReasons.length > 0
-        ? `${c.layer1.failureReasons.join(" ")} | ${c.layer2.rationale}`
-        : c.layer2.rationale;
-    const escapedNote = note.replaceAll("|", "\\|").replaceAll("\n", " ");
-    lines.push(
-      `| ${c.id} | \`${c.expectedTool}\` | ${l1Badge} | ${c.layer2.citationFaithfulness} | ${c.layer2.completeness} | ${c.layer2.clarity} | ${hallucinated} | ${escapedNote} |`,
-    );
-  }
-
-  lines.push("");
+    ...scorecard.cases.map(renderCaseRow),
+    "",
+  ];
   return lines.join("\n");
+}
+
+function renderCaseRow(c: CaseEvaluation): string {
+  const l1Badge = c.layer1.isPassed ? "PASS" : "FAIL";
+  const hallucinated = c.layer2.hasHallucinatedCitation ? "YES" : "no";
+  const note =
+    c.layer1.failureReasons.length > 0
+      ? `${c.layer1.failureReasons.join(" ")} | ${c.layer2.rationale}`
+      : c.layer2.rationale;
+  const escapedNote = note.replaceAll("|", "\\|").replaceAll("\n", " ");
+  return `| ${c.id} | \`${c.expectedTool}\` | ${l1Badge} | ${c.layer2.citationFaithfulness} | ${c.layer2.completeness} | ${c.layer2.clarity} | ${hallucinated} | ${escapedNote} |`;
 }
 
 function rateStr(passed: number, total: number): string {
   if (total === 0) return "0.0%";
-  return `${((passed / total) * 100).toFixed(1)}%`;
+  return `${((passed / total) * PERCENT_SCALE).toFixed(1)}%`;
 }

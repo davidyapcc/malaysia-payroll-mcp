@@ -8,6 +8,6 @@ We therefore evaluate every eval case in two layers, and both gate CI:
 
 ## Consequences
 
-- Every live eval case makes two LLM calls (the agent under test and the judge) at temperature 0, using either Anthropic (`ANTHROPIC_API_KEY`, defaulting to `claude-haiku-4-5`) or OpenAI (`OPENAI_API_KEY`, defaulting to `gpt-4o-mini`). When neither API key is configured, `evals/run.ts` falls back to a deterministic in-memory MCP harness so CI still verifies all 35 golden cases end-to-end and emits the scorecard without requiring a paid secret.
+- Every eval case makes three LLM calls (two agent turns plus the judge) at temperature 0, using either Anthropic (`ANTHROPIC_API_KEY`, defaulting to `claude-haiku-4-5`) or OpenAI (`OPENAI_API_KEY`, defaulting to `gpt-4o-mini`).
 - To prevent prose variance from making CI brittle, the gate uses suite-level thresholds (`>= 33/35` deterministic passes and `>= 4.0/5.0` mean rubric score, with zero tolerance for fabricated statutory citations) rather than requiring perfect prose on every case.
 

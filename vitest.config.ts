@@ -5,8 +5,8 @@ export default defineConfig({
     include: ["test/**/*.test.ts", "src/**/*.test.ts"],
     coverage: {
       provider: "v8",
-      include: ["src/**/*.ts"],
-      exclude: ["src/entry/**"],
+      include: ["src/**/*.ts", "evals/**/*.ts"],
+      exclude: ["src/entry/**", "evals/run.ts"],
       reporter: ["text", "lcov"],
       // Every line, branch and function is covered today; keep it that way.
       thresholds: { 100: true },
