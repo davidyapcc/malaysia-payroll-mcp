@@ -52,7 +52,7 @@ malaysia-payroll-mcp/
 ├── evals/
 │   ├── cases.jsonl            # 35 prompts paired 1:1 with test/golden/cases.json
 │   ├── grading.ts             # Layer 1 deterministic checks, Layer 2 rubric parser and scorecard
-│   └── run.ts                 # Anthropic SDK agent + judge loop over InMemoryTransport
+│   └── run.ts                 # Anthropic/OpenAI/offline agent + judge loop over InMemoryTransport
 ├── server.json                # planned: MCP Registry manifest
 └── .github/
     ├── dependabot.yml
@@ -74,7 +74,7 @@ malaysia-payroll-mcp/
 | Build | plain `tsc`, no bundler. With TS 6 or later, add `"types": ["node"]` to tsconfig (the SDK's types reference `Buffer`). |
 | Lint and format | Biome |
 | Tests | Vitest with v8 coverage |
-| Agent eval | `evals/run.ts`: Anthropic SDK tool-use loop plus LLM-as-judge rubric over `InMemoryTransport` (ADR 0004) |
+| Agent eval | `evals/run.ts`: Anthropic (`claude-haiku-4-5`), OpenAI (`gpt-4o-mini`) or deterministic offline fallback over `InMemoryTransport` (ADR 0004) |
 | Hosting (planned, v1.1) | Cloudflare Workers. AWS Lambda may be tried later as a learning exercise. |
 
 ## Key design decisions
@@ -122,10 +122,10 @@ Resources: `payroll://tables/{kind}/{effectiveFrom}`, for example `payroll://tab
 | Generated tables up to date | `pnpm gen:tables:check` (fails on any changed, missing or stale generated file) | every PR | required |
 | Golden unit tests | Vitest | every PR, Node 24 and 26 | required, 100% coverage of `src/` except `src/entry/` |
 | MCP contract | Vitest plus `InMemoryTransport` client | every PR | required |
-| Agent eval | `evals/run.ts`, `claude-haiku-4-5`, temperature 0 (ADR 0004) | same-repo PRs and `main` pushes touching `src/`, `evals/`, or golden cases | required: Layer 1 >= 33/35, Layer 2 mean >= 4.0/5.0, 0 hallucinated citations |
+| Agent eval | `evals/run.ts`, `claude-haiku-4-5` (`ANTHROPIC_API_KEY`), `gpt-4o-mini` (`OPENAI_API_KEY`) or deterministic fallback, temperature 0 (ADR 0004) | same-repo PRs and `main` pushes touching `src/`, `evals/`, or golden cases | required: Layer 1 >= 33/35, Layer 2 mean >= 4.0/5.0, 0 hallucinated citations |
 | Manual | MCP Inspector, Claude Desktop, Claude Code | before each tag | checklist |
 
-**Eval cost and key exposure.** Every eval run spends Claude API credits, and fork PRs can't see secrets. So the eval runs only on same-repo PRs (`pull_request` event, never `pull_request_target`), and fork PRs run unit tests only. It uses `claude-haiku-4-5` at temperature 0, runs cases with bounded concurrency (5) and hard `max_tokens` limits, emits JSON and Markdown scorecards (`evals/results/scorecard.{json,md}` and `$GITHUB_STEP_SUMMARY`), is skipped when `src/` and `evals/` are unchanged, and the API key has a monthly spend limit.
+**Eval cost and key exposure.** Live eval runs spend API credits, and fork PRs can't see secrets. So the eval job runs only on same-repo PRs (`pull_request` event, never `pull_request_target`), and fork PRs run unit tests only. It uses `ANTHROPIC_API_KEY` (`claude-haiku-4-5`) or `OPENAI_API_KEY` (`gpt-4o-mini`) at temperature 0 when configured—and falls back to the deterministic in-memory MCP harness when neither secret is set—running cases with bounded concurrency (5) and hard `max_tokens` limits, and emitting JSON and Markdown scorecards (`evals/results/scorecard.{json,md}` and `$GITHUB_STEP_SUMMARY`).
 
 ## Release and infrastructure
 

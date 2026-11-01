@@ -117,6 +117,11 @@ pnpm build          # compile to dist/
 
 To change a rate, edit or add a CSV in `docs/data/` (with its entry in `docs/data/sources.json`), run `pnpm gen:tables` and commit both. Never edit `src/tables/generated/` by hand: CI rejects it ([ADR 0003](docs/adr/0003-csv-rate-tables-are-canonical.md)).
 
+`pnpm eval` loads `.env` automatically if present:
+- Set `ANTHROPIC_API_KEY` to run with Claude (`claude-haiku-4-5` by default).
+- Or set `OPENAI_API_KEY` to run with OpenAI (`gpt-4o-mini` by default; override provider with `EVAL_PROVIDER=openai|anthropic|offline` and models with `EVAL_AGENT_MODEL` / `EVAL_JUDGE_MODEL`).
+- If neither key is set, it runs the deterministic in-memory MCP harness across all 35 cases and writes `evals/results/scorecard.json` and `evals/results/scorecard.md`.
+
 ## Licence
 
 [MIT](LICENSE)

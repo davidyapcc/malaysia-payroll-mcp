@@ -42,7 +42,7 @@
     "gen:tables:check": "node scripts/gen-tables.ts --check",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "eval": "pnpm build && node evals/run.ts",
+    "eval": "pnpm build && node --env-file-if-exists=.env evals/run.ts",
     "check": "pnpm gen:tables:check && pnpm lint && pnpm typecheck && pnpm test",
     "prepublishOnly": "pnpm build"
   },
