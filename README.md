@@ -23,7 +23,7 @@ Every rate table the tools read is also a read-only resource, as JSON with amoun
 
 ## Install
 
-Nothing is on npm yet, so build from source. You need Node 22 or later and pnpm.
+Nothing is on npm yet, so build from source. You need Node 24 or later and pnpm.
 
 ```sh
 git clone https://github.com/davidyapcc/malaysia-payroll-mcp.git
@@ -104,7 +104,7 @@ returns the following (amounts in RM, output from a real run):
 
 ## Development
 
-Needs Node 22 or later and pnpm (the version is pinned in `package.json`).
+Needs Node 24 or later and pnpm (the version is pinned in `package.json`).
 
 ```sh
 pnpm install
