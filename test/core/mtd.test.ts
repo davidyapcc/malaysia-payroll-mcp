@@ -149,6 +149,29 @@ describe("calculateMtd", () => {
     });
   });
 
+  it("accepts boundary values and all-zero year-to-date figures in January", () => {
+    expect(calculateMtd({ ...single, epfEmployee: 5000 }).monthlySalary).toBe(5000);
+    expect(
+      calculateMtd({ ...single, yearToDate: { remuneration: 0, epf: 0, mtd: 0 } }).payPeriod,
+    ).toBe("2026-01");
+    expect(
+      calculateMtd({
+        ...single,
+        payPeriod: "2026-02",
+        yearToDate: { remuneration: 5000, epf: 5000, mtd: 0 },
+      }).payPeriod,
+    ).toBe("2026-02");
+  });
+
+  it("allows TP1 reliefs above the salary, since a relief can exceed income", () => {
+    const result = calculateMtd({
+      ...single,
+      payPeriod: "2026-02",
+      yearToDate: { remuneration: 5000, epf: 550, mtd: 110, tp1Reliefs: 6000 },
+    });
+    expect(result.yearToDate?.tp1Reliefs).toBe(6000);
+  });
+
   it("defaults the pay period to the current month in Malaysia", () => {
     const { payPeriod: _, ...input } = single;
     const result = calculateMtd(input, { now: new Date("2026-01-15T00:00:00Z") });
@@ -164,6 +187,38 @@ describe("calculateMtd", () => {
     [{ ...single, epfEmployee: 1.005 }, "at most 2 decimal places"],
     [{ ...single, monthlySalary: 0 }, "more than RM0"],
     [{ ...single, taxCategory: undefined }, "taxCategory is required for a resident employee"],
+    [
+      { ...single, epfEmployee: 5000.01 },
+      "epfEmployee (RM5,000.01) can't be more than monthlySalary",
+    ],
+    [
+      { ...single, taxResident: false, epfEmployee: 6000 },
+      "epfEmployee (RM6,000.00) can't be more than monthlySalary",
+    ],
+    [
+      { ...single, yearToDate: { remuneration: 1000, epf: 0, mtd: 0 } },
+      "yearToDate must be all 0 in January",
+    ],
+    [
+      { ...single, yearToDate: { remuneration: 0, epf: 0, mtd: 0, tp1Reliefs: 100 } },
+      "yearToDate must be all 0 in January",
+    ],
+    [
+      {
+        ...single,
+        payPeriod: "2026-02",
+        yearToDate: { remuneration: 5000, epf: 5000.01, mtd: 0 },
+      },
+      "yearToDate.epf (RM5,000.01) can't be more than yearToDate.remuneration",
+    ],
+    [
+      {
+        ...single,
+        payPeriod: "2026-02",
+        yearToDate: { remuneration: 5000, epf: 550, mtd: 5000.01 },
+      },
+      "yearToDate.mtd (RM5,000.01) can't be more than yearToDate.remuneration",
+    ],
   ])("rejects %j", (input, message) => {
     expect(() => calculateMtd(input)).toThrow(PayrollInputError);
     expect(() => calculateMtd(input)).toThrow(message);

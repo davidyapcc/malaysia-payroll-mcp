@@ -4,7 +4,7 @@ Status: design decided Oct 24, 2026, after an architecture review; partly built.
 
 The goal is statutory payroll numbers an agent can rely on: correct, traceable to an official source, and tested. Where goals conflict, choose what someone can see and verify: tests, provenance and a citation behind every number.
 
-**Built today:** `calculate_epf`, `calculate_socso_eis`, `calculate_mtd`, `calculate_net_pay`, the rate tables and their resources, the stdio entry point, and CI for lint, types, generated tables and tests. Version 0.1.0 is tagged on GitHub. **Planned, not built:** everything marked "planned" below, including the agent eval, the hosted endpoint, npm publishing and the MCP Registry listing.
+**Built today:** `calculate_epf`, `calculate_socso_eis`, `calculate_mtd`, `calculate_net_pay`, the rate tables and their resources, the stdio entry point, and CI for lint, types, generated tables and tests. Tagged releases are on GitHub. **Planned, not built:** everything marked "planned" below, including the agent eval, the hosted endpoint, npm publishing and the MCP Registry listing.
 
 ## Repository layout
 
@@ -128,7 +128,7 @@ Resources: `payroll://tables/{kind}/{effectiveFrom}`, for example `payroll://tab
 
 ## Release and infrastructure
 
-0.1.0 is tagged on GitHub but not published anywhere. The publishing pipeline below is planned.
+Releases are tagged on GitHub but not published anywhere. The publishing pipeline below is planned.
 
 - **Versioning.** A new rate table is a minor version. So is any fix that changes a number, with a "results changed" note in the release notes, never a quiet patch. A schema change that breaks callers is a major version. Patch versions cover everything else.
 - **Publishing.** Pushing a version tag (a bare number such as `0.2.0`, no `v` prefix) runs `publish.yml`. It publishes to npm through trusted publishing (OIDC, needs `id-token: write`, provenance is automatic), then to the MCP Registry with `mcp-publisher login github-oidc`. No npm token is stored. The first npm publish is probably manual, so trusted publishing can be configured on an existing package. Publish runs on Node 24.

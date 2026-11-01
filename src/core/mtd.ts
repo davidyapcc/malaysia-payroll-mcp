@@ -203,10 +203,34 @@ const CATEGORY: Readonly<Record<TaxCategory, string>> = {
   3: "Category 3 (married with a working spouse, divorced, widowed, or single with an adopted child): individual relief, no spouse relief.",
 };
 
+/** Rejects year-to-date figures that can't be true. TP1 reliefs are exempt: a relief can exceed income. */
+function assertPossibleYtd(ytd: Ytd, month: number): void {
+  if (month === 1 && ytd.remuneration + ytd.epf + ytd.mtd + ytd.tp1Reliefs > 0) {
+    throw new PayrollInputError(
+      "yearToDate must be all 0 in January, because no earlier months of the year exist. Leave it out, or use the current month's pay period.",
+    );
+  }
+  for (const [field, amount] of [
+    ["epf", ytd.epf],
+    ["mtd", ytd.mtd],
+  ] as const) {
+    if (amount > ytd.remuneration) {
+      throw new PayrollInputError(
+        `yearToDate.${field} (${formatRm(amount)}) can't be more than yearToDate.remuneration (${formatRm(ytd.remuneration)}). Check the year-to-date figures.`,
+      );
+    }
+  }
+}
+
 /** MTD (PCB) for one month, for a resident employee, from LHDN's schedule in effect. */
 export function calculateMtd(input: MtdInput, options: { now?: Date } = {}): MtdResult {
   const salary = monthlySalarySen(input.monthlySalary);
   const epf = toSen(input.epfEmployee);
+  if (epf > salary) {
+    throw new PayrollInputError(
+      `epfEmployee (${formatRm(epf)}) can't be more than monthlySalary (${formatRm(salary)}). Pass the employee share from calculate_epf.`,
+    );
+  }
   const tp1Reliefs = toSen(input.tp1Reliefs ?? 0);
   const payPeriod = resolvePayPeriod(input.payPeriod, options.now);
   const table = tableInEffect(mtdTableFor, payPeriod);
@@ -238,6 +262,7 @@ export function calculateMtd(input: MtdInput, options: { now?: Date } = {}): Mtd
       mtd: toSen(input.yearToDate.mtd),
       tp1Reliefs: toSen(input.yearToDate.tp1Reliefs ?? 0),
     };
+    assertPossibleYtd(ytd, month);
   } else if (month === 1) ytd = { remuneration: 0, epf: 0, mtd: 0, tp1Reliefs: 0 };
   else {
     throw new PayrollInputError(

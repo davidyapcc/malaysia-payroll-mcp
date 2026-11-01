@@ -110,4 +110,13 @@ describe("calculateNetPay", () => {
       "yearToDate is required for pay period 2026-11",
     );
   });
+
+  it("rejects impossible year-to-date figures", () => {
+    expect(() =>
+      calculateNetPay({
+        ...employee,
+        yearToDate: { remuneration: 100, epf: 100.01, mtd: 0 },
+      }),
+    ).toThrow("yearToDate.epf (RM100.01) can't be more than yearToDate.remuneration");
+  });
 });
