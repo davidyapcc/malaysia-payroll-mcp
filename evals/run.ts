@@ -3,7 +3,7 @@
 // prompts, grades Layer 1 (deterministic tool/arg/number checks) and Layer 2 (LLM-as-judge rubric),
 // and emits JSON and Markdown scorecards in evals/results/.
 
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
@@ -13,9 +13,7 @@ import type {
   ToolResultBlockParam,
 } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 import { Client } from "@modelcontextprotocol/client";
-import { InMemoryTransport } from "@modelcontextprotocol/server";
-import { createServer } from "../src/mcp/server.js";
-import { VERSION } from "../src/version.js";
+import { InMemoryTransport, type McpServer } from "@modelcontextprotocol/server";
 import {
   buildScorecard,
   type CaseEvaluation,
@@ -29,7 +27,7 @@ import {
   type RubricScore,
   renderScorecardMarkdown,
   type Scorecard,
-} from "./grading.js";
+} from "./grading.ts";
 
 export const DEFAULT_AGENT_MODEL = "claude-haiku-4-5";
 export const DEFAULT_JUDGE_MODEL = "claude-haiku-4-5";
@@ -92,9 +90,16 @@ export interface AnthropicClientLike {
 
 /** Connects an in-memory MCP client to a fresh malaysia-payroll-mcp server instance. */
 export async function createInMemoryMcpClient(): Promise<Client> {
+  const distServerUrl = new URL("../dist/mcp/server.js", import.meta.url);
+  const serverSpecifier = existsSync(distServerUrl)
+    ? "../dist/mcp/server.js"
+    : "../src/mcp/server.js";
+  const { createServer } = (await import(serverSpecifier)) as {
+    createServer: () => McpServer;
+  };
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await createServer().connect(serverTransport);
-  const client = new Client({ name: "malaysia-payroll-eval-client", version: VERSION });
+  const client = new Client({ name: "malaysia-payroll-eval-client", version: "0.2.0" });
   await client.connect(clientTransport);
   return client;
 }
