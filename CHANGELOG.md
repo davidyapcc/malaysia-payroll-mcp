@@ -2,7 +2,7 @@
 
 Versioning rules are in [docs/architecture.md](docs/architecture.md#release-and-infrastructure).
 
-## 0.2.0 (unreleased)
+## 0.2.0 (2026-11-01)
 
 ### Added
 
