@@ -1,4 +1,5 @@
 // CLI entry point for running the two-layer agent eval suite (`pnpm eval`).
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type EvalCase, type GateThresholds, renderScorecardMarkdown } from "./grading.ts";
@@ -18,13 +19,16 @@ export async function runCli(
   options: RunCliOptions = {},
 ): Promise<number> {
   const provider = resolveProvider(env, options.fetchFn);
+  const defaultServerSpecifier = existsSync(new URL("../dist/mcp/server.js", import.meta.url))
+    ? "../dist/mcp/server.js"
+    : "../src/mcp/server.js";
   const scorecard = await runEvalSuite({
     evalCases: options.evalCases ?? loadEvalCases(),
     llm: provider.client,
     agentModel: provider.agentModel,
     judgeModel: provider.judgeModel,
     concurrency: parseConcurrency(env.EVAL_CONCURRENCY),
-    serverModuleSpecifier: options.serverModuleSpecifier ?? "../dist/mcp/server.js",
+    serverModuleSpecifier: options.serverModuleSpecifier ?? defaultServerSpecifier,
     ...(options.thresholds !== undefined ? { thresholds: options.thresholds } : {}),
   });
   const { jsonPath, markdownPath } = writeScorecardFiles(
