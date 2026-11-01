@@ -8,6 +8,6 @@ We therefore evaluate every eval case in two layers, and both gate CI:
 
 ## Consequences
 
-- Every eval case makes three LLM calls (two agent turns plus the judge) at temperature 0, using either Anthropic (`ANTHROPIC_API_KEY`, defaulting to `claude-haiku-4-5`) or OpenAI (`OPENAI_API_KEY`, defaulting to `gpt-4o-mini`).
+- Each eval case makes up to three or four LLM calls (agent tool-use rounds bounded by `MAX_TOOL_ROUNDS` plus the judge) at temperature 0, using either Anthropic (`ANTHROPIC_API_KEY`, defaulting to `claude-haiku-4-5`) or OpenAI (`OPENAI_API_KEY`, defaulting to `gpt-4o-mini`).
 - To prevent prose variance from making CI brittle, the gate uses suite-level thresholds (`>= 33/35` deterministic passes and `>= 4.0/5.0` mean rubric score, with zero tolerance for fabricated statutory citations) rather than requiring perfect prose on every case.
 

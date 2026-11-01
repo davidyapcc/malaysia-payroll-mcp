@@ -17,7 +17,9 @@ import {
   type CaseEvaluation,
   type EvalCase,
   evaluateLayer1,
+  type GateThresholds,
   goldenFileSchema,
+  isPlainObject,
   MIN_RUBRIC_SCORE,
   parseCasesJsonl,
   parseJudgeResponse,
@@ -35,23 +37,37 @@ const MAX_TOOL_ROUNDS = 3;
 
 export const AGENT_SYSTEM_PROMPT = [
   "You are a Malaysian statutory payroll assistant connected to the malaysia-payroll-mcp server.",
-  "Always call a single MCP tool that directly answers the user's question rather than calling multiple tools or calculating from memory.",
-  "If a tool call returns a validation or domain error, do not retry with different arguments; explain the error directly to the user.",
-  "In your final answer:",
-  "1. State every RM figure returned by the tool formatted as RM with two decimal places (for example RM550.00), including employee share, employer share, totals, net pay, total deductions, total employer contributions and total employer cost where present in the tool output.",
-  "2. Cite the statutory rule, rate-table band/row (if any), official source title and effective date exactly as returned in the tool's citations/explanation.",
-  "3. Include a brief note that the result is for fixed monthly salaries only and is not tax or legal advice.",
+  "Use the MCP tools to compute statutory contributions, deductions, and net pay rather than calculating manually.",
+  "In your response:",
+  "1. Present the computed RM figures clearly with two decimal places, detailing employee, employer, and total amounts where relevant.",
+  "2. Cite the relevant statutory rules, rate tables, official sources, and effective dates provided by the tools.",
+  "3. Note that calculations apply to fixed monthly salaries only and do not constitute tax or legal advice.",
 ].join("\n");
 
 export const JUDGE_SYSTEM_PROMPT = [
-  "You are an impartial payroll evaluation judge grading an AI agent's answer to a Malaysian payroll question.",
-  "You are given the user's question, the exact MCP tool call(s) and structured tool output, and the agent's final answer.",
-  "Score the agent's final answer on three dimensions, each as an integer from 1 (worst) to 5 (best):",
-  "1. `citationFaithfulness` (1-5): Does the answer accurately cite the statutory rule, rate-table row/band, source title and effective date from the tool output without inventing or contradicting any statute, rate, band or date? If the agent fabricates a statutory citation, percentage, band or effective date not supported by the tool output, score 1 or 2 and set `hallucinatedCitation` to true.",
-  "2. `completeness` (1-5): Does the answer fully address the user's question, state the employee, employer and total shares (where applicable), and include the fixed-salary / non-advice disclaimer?",
-  "3. `clarity` (1-5): Is the answer well-organized, easy to read, and unambiguous about RM amounts and statutory terms?",
-  "Respond with ONLY a valid JSON object matching this exact schema:",
-  '{"citationFaithfulness": 5, "completeness": 5, "clarity": 5, "hallucinatedCitation": false, "rationale": "One concise sentence explaining the scores."}',
+  "You are an impartial, rigorous payroll evaluation judge grading an AI agent's answer to a Malaysian statutory payroll query.",
+  "You are provided: the user prompt, the recorded tool calls and structured outputs (or error messages), and the agent's final answer.",
+  "Evaluate and score the agent's answer on three distinct integer dimensions from 1 (unacceptable) to 5 (flawless):",
+  "",
+  "1. `citationFaithfulness` (1-5):",
+  "- Score 5: Every citation (rule, rate-table row/band, source title, effective date) strictly matches the tool output with no invented facts.",
+  "- Score 3-4: Mostly faithful, minor omission or minor rewording of citations.",
+  "- Score 1-2: Fabricated citation, made up statutes/bands/rates, claimed facts contradicting tool output, or hallucinated statutory authority.",
+  "Set `hallucinatedCitation: true` if and only if the agent invented or contradicted statutory rules, rates, bands, or effective dates.",
+  "",
+  "2. `completeness` (1-5):",
+  "- For normal calculations: Did the agent state all required statutory numbers asked for in the user prompt (e.g. employee deduction, employer contribution, totals, net pay as applicable to the queried statute), and include the fixed-salary / non-advice disclaimer?",
+  "- For refusal/disallowance cases: If the user asked for an action that is statutorily prohibited (e.g. opting out of SKBBK when not allowed) or any tool call returned a statutory refusal/error, the agent's answer MUST clearly explain why the request is disallowed under the statutory rules. If the agent silently ignored the refusal, retried with alternative parameters without explaining the refusal, or failed to address the user's opt-out request, completeness MUST be scored 1 or 2 (never 3, 4, or 5).",
+  "- Deduct points if the agent omitted required figures, failed to explain errors, or omitted mandatory disclaimers.",
+  "- Do NOT praise or reward employer shares on MTD (PCB) income tax queries; MTD is purely an employee withholding with no employer share.",
+  "",
+  "3. `clarity` (1-5):",
+  "- Score 5: Structured, easy to read, unambiguous labeling of amounts (e.g. RM xx.xx) and statutory bodies (KWSP, PERKESO, LHDN).",
+  "- Score 1-3: Confusing layout, ambiguous labels, or hard to distinguish employee from employer amounts.",
+  "",
+  "Be discriminating: do not default to 5/5/5. Deduct points whenever an answer is incomplete, misleading, unfaithful, or fails to explain a statutory refusal.",
+  "Respond ONLY with a valid JSON object matching this schema:",
+  '{"citationFaithfulness": <number>, "completeness": <number>, "clarity": <number>, "hallucinatedCitation": <boolean>, "rationale": "<concise explanation>"}',
 ].join("\n");
 
 const mcpContentBlockSchema = z.object({
@@ -133,9 +149,9 @@ async function runAgentLoop(params: {
   readonly tools: readonly Tool[];
   readonly llm: LlmClient;
   readonly agentModel: string;
-}): Promise<{ toolCalls: RecordedToolCall[]; finalAnswer: string }> {
-  const messages: MessageParam[] = [{ role: "user", content: params.prompt }];
-  const toolCalls: RecordedToolCall[] = [];
+}): Promise<{ toolCalls: readonly RecordedToolCall[]; finalAnswer: string }> {
+  let messages: MessageParam[] = [{ role: "user", content: params.prompt }];
+  let toolCalls: readonly RecordedToolCall[] = [];
   let finalAnswer = "";
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -156,76 +172,81 @@ async function runAgentLoop(params: {
       break;
     }
 
-    messages.push({ role: "assistant", content: response.content as MessageParam["content"] });
-    const toolResults = await executeToolUses(params.mcpClient, toolUses, toolCalls);
-    messages.push({ role: "user", content: toolResults });
+    const { toolResults, recordedCalls } = await executeToolUses(params.mcpClient, toolUses);
+    toolCalls = [...toolCalls, ...recordedCalls];
+    messages = [
+      ...messages,
+      { role: "assistant", content: response.content as MessageParam["content"] },
+      { role: "user", content: toolResults },
+    ];
     if (textParts.length > 0) finalAnswer = textParts.join("\n").trim();
   }
   return { toolCalls, finalAnswer };
 }
 
 function extractTextBlocks(content: readonly { type: string; text?: string }[]): string[] {
-  const texts: string[] = [];
-  for (const block of content) {
-    if (block.type === "text" && typeof block.text === "string") {
-      texts.push(block.text);
-    }
-  }
-  return texts;
+  return content
+    .filter(
+      (b): b is { type: "text"; text: string } => b.type === "text" && typeof b.text === "string",
+    )
+    .map((b) => b.text);
 }
 
 function extractToolUses(
   content: readonly { type: string; id?: string; name?: string; input?: unknown }[],
-): { id: string; name: string; input: Record<string, unknown> }[] {
-  const uses: { id: string; name: string; input: Record<string, unknown> }[] = [];
-  for (const block of content) {
-    if (
-      block.type === "tool_use" &&
-      typeof block.id === "string" &&
-      typeof block.name === "string"
-    ) {
-      const inputObj =
-        typeof block.input === "object" && block.input !== null && !Array.isArray(block.input)
-          ? (block.input as Record<string, unknown>)
-          : {};
-      uses.push({ id: block.id, name: block.name, input: inputObj });
-    }
-  }
-  return uses;
+): readonly { id: string; name: string; input: Record<string, unknown> }[] {
+  return content
+    .filter(
+      (b): b is { type: "tool_use"; id: string; name: string; input?: unknown } =>
+        b.type === "tool_use" && typeof b.id === "string" && typeof b.name === "string",
+    )
+    .map((b) => ({
+      id: b.id,
+      name: b.name,
+      input: isPlainObject(b.input) ? b.input : {},
+    }));
 }
 
 async function executeToolUses(
   mcpClient: Client,
   toolUses: readonly { id: string; name: string; input: Record<string, unknown> }[],
-  recorded: RecordedToolCall[],
-): Promise<ToolResultBlockParam[]> {
-  const results: ToolResultBlockParam[] = [];
-  for (const toolUse of toolUses) {
-    const rawResult = await mcpClient.callTool({ name: toolUse.name, arguments: toolUse.input });
-    const parsed = mcpCallResultSchema.parse(rawResult);
-    const textContent = parsed.content
-      .map((c) => c.text)
-      .join("\n")
-      .trim();
-    const isError = Boolean(parsed.isError);
+): Promise<{
+  readonly toolResults: ToolResultBlockParam[];
+  readonly recordedCalls: readonly RecordedToolCall[];
+}> {
+  const executed = await Promise.all(
+    toolUses.map(async (toolUse) => {
+      const rawResult = await mcpClient.callTool({ name: toolUse.name, arguments: toolUse.input });
+      const parsed = mcpCallResultSchema.parse(rawResult);
+      const textContent = parsed.content
+        .map((c) => c.text)
+        .join("\n")
+        .trim();
+      const isError = Boolean(parsed.isError);
 
-    recorded.push({
-      name: toolUse.name,
-      arguments: toolUse.input,
-      isError,
-      textContent,
-      ...(parsed.structuredContent !== undefined
-        ? { structuredContent: parsed.structuredContent }
-        : {}),
-    });
-    results.push({
-      type: "tool_result",
-      tool_use_id: toolUse.id,
-      content: textContent,
-      is_error: isError,
-    });
-  }
-  return results;
+      const recordedCall: RecordedToolCall = {
+        name: toolUse.name,
+        arguments: toolUse.input,
+        isError,
+        textContent,
+        ...(parsed.structuredContent !== undefined
+          ? { structuredContent: parsed.structuredContent }
+          : {}),
+      };
+      const toolResult: ToolResultBlockParam = {
+        type: "tool_result",
+        tool_use_id: toolUse.id,
+        content: textContent,
+        is_error: isError,
+      };
+      return { recordedCall, toolResult };
+    }),
+  );
+
+  return {
+    toolResults: executed.map((e) => e.toolResult),
+    recordedCalls: executed.map((e) => e.recordedCall),
+  };
 }
 
 async function judgeAnswer(params: {
@@ -264,12 +285,14 @@ async function judgeAnswer(params: {
     const rawText = extractTextBlocks(response.content).join("\n");
     return parseJudgeResponse(rawText);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Judge evaluation error for case ${evalCase.id}: ${message}`);
     return {
       citationFaithfulness: MIN_RUBRIC_SCORE,
       completeness: MIN_RUBRIC_SCORE,
       clarity: MIN_RUBRIC_SCORE,
-      hasHallucinatedCitation: true,
-      rationale: `Judge evaluation failed: ${(error as Error).message}`,
+      hasHallucinatedCitation: false,
+      rationale: `Judge evaluation failed: ${message}`,
     };
   }
 }
@@ -292,6 +315,7 @@ export async function runEvalSuite(options: {
   readonly judgeModel?: string;
   readonly concurrency?: number;
   readonly serverModuleSpecifier?: string;
+  readonly thresholds?: GateThresholds;
 }): Promise<Scorecard> {
   const agentModel = options.agentModel ?? DEFAULT_ANTHROPIC_MODEL;
   const judgeModel = options.judgeModel ?? DEFAULT_ANTHROPIC_MODEL;
@@ -320,6 +344,7 @@ export async function runEvalSuite(options: {
       cases: results,
       agentModel,
       judgeModel,
+      ...(options.thresholds !== undefined ? { thresholds: options.thresholds } : {}),
     });
   } finally {
     await mcpClient.close();

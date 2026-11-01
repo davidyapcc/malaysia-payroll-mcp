@@ -160,33 +160,36 @@ export function buildEvalCases(
 ): EvalCase[] {
   const goldenById = indexGoldenCases(golden);
   const seenIds = new Set<string>();
-  const evalCases: EvalCase[] = [];
 
   for (const item of prompts) {
     if (seenIds.has(item.id)) {
       throw new Error(`Duplicate eval case ID "${item.id}" in cases.jsonl.`);
     }
     seenIds.add(item.id);
+  }
+
+  const cases = prompts.map((item) => {
     const match = goldenById.get(item.id);
     if (match === undefined) {
       throw new Error(`Eval case "${item.id}" does not exist in test/golden/cases.json.`);
     }
-    evalCases.push({
+    return {
       id: item.id,
       prompt: item.prompt,
       expectedTool: match.tool,
       expectedInput: match.entry.input,
       ...(match.entry.expected !== undefined ? { expectedOutput: match.entry.expected } : {}),
       ...(match.entry.error !== undefined ? { expectedError: match.entry.error } : {}),
-    });
-  }
+    };
+  });
 
   for (const id of goldenById.keys()) {
     if (!seenIds.has(id)) {
       throw new Error(`Golden case "${id}" has no prompt in evals/cases.jsonl.`);
     }
   }
-  return evalCases;
+
+  return cases;
 }
 
 function indexGoldenCases(
@@ -207,6 +210,36 @@ function indexGoldenCases(
   return map;
 }
 
+interface MtdDefaults {
+  readonly extra: Record<string, unknown>;
+  readonly omitKeys: readonly string[];
+}
+
+function computeMtdDefaults(rawArgs: Record<string, unknown>): MtdDefaults {
+  const taxResident = rawArgs.taxResident ?? true;
+  if (taxResident === false) {
+    return {
+      extra: { taxResident: false },
+      omitKeys: ["taxCategory", "children", "tp1Reliefs", "yearToDate"],
+    };
+  }
+
+  const isJanuary = typeof rawArgs.payPeriod === "string" && rawArgs.payPeriod.endsWith("-01");
+  const yearToDate = isPlainObject(rawArgs.yearToDate)
+    ? { ...rawArgs.yearToDate, tp1Reliefs: rawArgs.yearToDate.tp1Reliefs ?? 0 }
+    : undefined;
+
+  return {
+    extra: {
+      taxResident: true,
+      children: rawArgs.children ?? 0,
+      tp1Reliefs: rawArgs.tp1Reliefs ?? 0,
+      ...(yearToDate !== undefined ? { yearToDate } : {}),
+    },
+    omitKeys: isJanuary ? ["yearToDate"] : [],
+  };
+}
+
 /**
  * Normalizes tool arguments by applying documented schema defaults and omitting fields the
  * tool schema documents as ignored (such as resident-only fields when `taxResident: false`).
@@ -215,65 +248,40 @@ export function canonicalizeArgs(
   tool: ToolName,
   rawArgs: Record<string, unknown>,
 ): Record<string, unknown> {
-  const omitKeys = new Set<string>();
-  const extra: Record<string, unknown> = {};
+  const epfExtra =
+    tool === "calculate_epf" || tool === "calculate_net_pay"
+      ? {
+          registeredWithEpfBefore1Aug1998: Boolean(
+            rawArgs.registeredWithEpfBefore1Aug1998 ?? false,
+          ),
+        }
+      : {};
 
-  if (tool === "calculate_epf" || tool === "calculate_net_pay") {
-    extra.registeredWithEpfBefore1Aug1998 = Boolean(
-      rawArgs.registeredWithEpfBefore1Aug1998 ?? false,
-    );
-  }
-  if (tool === "calculate_socso_eis" || tool === "calculate_net_pay") {
-    extra.skbbkStatus = rawArgs.skbbkStatus ?? "covered";
-    if (
-      typeof rawArgs.age === "number" &&
-      (rawArgs.age < EIS_AGE_MIN || rawArgs.age > EIS_AGE_MAX)
-    ) {
-      omitKeys.add("eisPayableBefore57");
-    }
-  }
-  if (tool === "calculate_mtd" || tool === "calculate_net_pay") {
-    applyMtdDefaults(rawArgs, extra, omitKeys);
-  }
+  const isEisAgeOutOfRange =
+    typeof rawArgs.age === "number" && (rawArgs.age < EIS_AGE_MIN || rawArgs.age > EIS_AGE_MAX);
+  const socsoExtra =
+    tool === "calculate_socso_eis" || tool === "calculate_net_pay"
+      ? { skbbkStatus: rawArgs.skbbkStatus ?? "covered" }
+      : {};
+  const socsoOmit =
+    (tool === "calculate_socso_eis" || tool === "calculate_net_pay") && isEisAgeOutOfRange
+      ? ["eisPayableBefore57"]
+      : [];
 
-  const merged: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries({ ...rawArgs, ...extra })) {
-    if (!omitKeys.has(key) && value !== undefined) {
-      merged[key] = value;
-    }
-  }
-  return sortObjectKeys(merged);
+  const mtd =
+    tool === "calculate_mtd" || tool === "calculate_net_pay"
+      ? computeMtdDefaults(rawArgs)
+      : { extra: {}, omitKeys: [] };
+
+  const omitSet = new Set<string>([...socsoOmit, ...mtd.omitKeys]);
+  const combined = { ...rawArgs, ...epfExtra, ...socsoExtra, ...mtd.extra };
+  const filtered = Object.fromEntries(
+    Object.entries(combined).filter(([key, value]) => !omitSet.has(key) && value !== undefined),
+  );
+  return sortObjectKeys(filtered);
 }
 
-function applyMtdDefaults(
-  rawArgs: Record<string, unknown>,
-  extra: Record<string, unknown>,
-  omitKeys: Set<string>,
-): void {
-  const taxResident = rawArgs.taxResident ?? true;
-  extra.taxResident = taxResident;
-
-  if (taxResident === false) {
-    for (const key of ["taxCategory", "children", "tp1Reliefs", "yearToDate"]) {
-      omitKeys.add(key);
-    }
-    return;
-  }
-
-  extra.children = rawArgs.children ?? 0;
-  extra.tp1Reliefs = rawArgs.tp1Reliefs ?? 0;
-  const isJanuary = typeof rawArgs.payPeriod === "string" && rawArgs.payPeriod.endsWith("-01");
-  if (isJanuary) {
-    omitKeys.add("yearToDate");
-  } else if (isPlainObject(rawArgs.yearToDate)) {
-    extra.yearToDate = {
-      ...rawArgs.yearToDate,
-      tp1Reliefs: rawArgs.yearToDate.tp1Reliefs ?? 0,
-    };
-  }
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -304,6 +312,11 @@ export function matchesExpectedObject(actual: unknown, expected: Record<string, 
   return true;
 }
 
+function uniqueNumbers(values: readonly unknown[]): number[] {
+  const numbers = values.filter((v): v is number => typeof v === "number");
+  return Array.from(new Set(numbers));
+}
+
 /**
  * Extracts every headline statutory RM figure from a golden case's `expected` object that must
  * appear in the agent's final natural-language answer.
@@ -312,49 +325,42 @@ export function headlineNumbers(evalCase: EvalCase): number[] {
   const expected = evalCase.expectedOutput;
   if (expected === undefined) return [];
 
-  const nums: number[] = [];
-  const pushAll = (values: readonly unknown[]) => {
-    for (const val of values) {
-      if (typeof val === "number" && !nums.includes(val)) nums.push(val);
-    }
-  };
-
   if (evalCase.expectedTool === "calculate_epf") {
-    pushAll([expected.employer, expected.employee, expected.total]);
-  } else if (evalCase.expectedTool === "calculate_socso_eis") {
-    pushAll([
+    return uniqueNumbers([expected.employer, expected.employee, expected.total]);
+  }
+  if (evalCase.expectedTool === "calculate_socso_eis") {
+    return uniqueNumbers([
       pickField(expected.socso, "employer"),
       pickField(expected.socso, "employee"),
       pickField(expected.skbbk, "employee"),
       pickField(expected.eis, "employer"),
       pickField(expected.eis, "employee"),
     ]);
-  } else if (evalCase.expectedTool === "calculate_mtd") {
-    pushAll([expected.mtd]);
-  } else {
-    const ded = expected.deductions;
-    const er = expected.employerContributions;
-    pushAll([
-      expected.netPay,
-      pickField(ded, "epf"),
-      pickField(ded, "socso"),
-      pickField(ded, "skbbk"),
-      pickField(ded, "eis"),
-      pickField(ded, "mtd"),
-      pickField(ded, "total"),
-      pickField(er, "epf"),
-      pickField(er, "socso"),
-      pickField(er, "eis"),
-      pickField(er, "total"),
-      expected.employerCost,
-    ]);
   }
-  return nums;
+  if (evalCase.expectedTool === "calculate_mtd") {
+    return uniqueNumbers([expected.mtd]);
+  }
+  const ded = expected.deductions;
+  const er = expected.employerContributions;
+  return uniqueNumbers([
+    expected.netPay,
+    pickField(ded, "epf"),
+    pickField(ded, "socso"),
+    pickField(ded, "skbbk"),
+    pickField(ded, "eis"),
+    pickField(ded, "mtd"),
+    pickField(ded, "total"),
+    pickField(er, "epf"),
+    pickField(er, "socso"),
+    pickField(er, "eis"),
+    pickField(er, "total"),
+    expected.employerCost,
+  ]);
 }
 
 const RM_PREFIXED_RE = /(?:RM|MYR)\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?![\d%]|\.\d)/gi;
 const DECIMAL_MONEY_RE = /(?<![.\d-])(\d{1,3}(?:,\d{3})+|\d+)\.\d{2}(?![\d%]|\.\d)/g;
-const ZERO_WORD_RE = /\b(?:nil|exempt)\b/i;
+const ZERO_WORD_RE = /(?<!\bnot\s+)\b(?:nil|exempt(?:ed)?|zero)\b/i;
 
 /**
  * Checks whether a statutory RM figure appears in natural-language prose, matching RM-prefixed
@@ -372,8 +378,10 @@ export function containsRmAmount(prose: string, amount: number): boolean {
   return amount === 0 && ZERO_WORD_RE.test(prose);
 }
 
-const OPT_OUT_REFUSAL_RE =
-  /opt[\s-]*out|cannot|can't|not\s+allowed|mandatory|not\s+eligible|not\s+permitted/i;
+const REFUSAL_EXPLANATION_RE =
+  /(?:cannot|can't|not\s+(?:allowed|permitted|eligible|possible)|unable|prohibited)\b[^.\n]*\bopt[\s-]*out|opt[\s-]*out\b[^.\n]*\b(?:not\s+(?:allowed|permitted|eligible|possible)|prohibited)|\bmandatory\b/i;
+const AFFIRMATIVE_OPT_OUT_RE =
+  /(?<!\bnot\s+)\b(?:can|may|allowed\s+to|permitted\s+to|eligible\s+to)\s+opt[\s-]*out\b/i;
 
 /** Evaluates Layer 1 (deterministic tool selection, argument extraction and statutory numbers). */
 export function evaluateLayer1(
@@ -381,30 +389,38 @@ export function evaluateLayer1(
   toolCalls: readonly RecordedToolCall[],
   finalAnswer: string,
 ): Layer1Result {
-  const failureReasons: string[] = [];
   const matchingCall = toolCalls.find((call) => call.name === evalCase.expectedTool);
   const hasExpectedTool = matchingCall !== undefined && toolCalls.length === 1;
-  if (!hasExpectedTool) {
-    const called = toolCalls.length === 0 ? "none" : toolCalls.map((c) => c.name).join(", ");
-    failureReasons.push(`Expected single tool call to "${evalCase.expectedTool}", got: ${called}.`);
-  }
+  const toolErrors = hasExpectedTool
+    ? []
+    : [
+        `Expected single tool call to "${evalCase.expectedTool}", got: ${
+          toolCalls.length === 0 ? "none" : toolCalls.map((c) => c.name).join(", ")
+        }.`,
+      ];
 
-  const hasMatchingArgs = checkArgsMatch(evalCase, matchingCall, failureReasons);
-  const hasMatchingToolOutput = checkToolOutputMatch(evalCase, matchingCall, failureReasons);
-  const { hasExpectedProseAmounts, missingAmounts } = checkProseMatch(
-    evalCase,
-    finalAnswer,
-    failureReasons,
-  );
+  const argsCheck = checkArgsMatch(evalCase, matchingCall);
+  const toolOutputCheck = checkToolOutputMatch(evalCase, matchingCall);
+  const proseCheck = checkProseMatch(evalCase, finalAnswer);
+
+  const failureReasons = [
+    ...toolErrors,
+    ...argsCheck.failureReasons,
+    ...toolOutputCheck.failureReasons,
+    ...proseCheck.failureReasons,
+  ];
 
   return {
     isPassed:
-      hasExpectedTool && hasMatchingArgs && hasMatchingToolOutput && hasExpectedProseAmounts,
+      hasExpectedTool &&
+      argsCheck.hasMatchingArgs &&
+      toolOutputCheck.hasMatchingToolOutput &&
+      proseCheck.hasExpectedProseAmounts,
     hasExpectedTool,
-    hasMatchingArgs,
-    hasMatchingToolOutput,
-    hasExpectedProseAmounts,
-    missingAmounts,
+    hasMatchingArgs: argsCheck.hasMatchingArgs,
+    hasMatchingToolOutput: toolOutputCheck.hasMatchingToolOutput,
+    hasExpectedProseAmounts: proseCheck.hasExpectedProseAmounts,
+    missingAmounts: proseCheck.missingAmounts,
     failureReasons,
   };
 }
@@ -412,74 +428,89 @@ export function evaluateLayer1(
 function checkArgsMatch(
   evalCase: EvalCase,
   matchingCall: RecordedToolCall | undefined,
-  failureReasons: string[],
-): boolean {
-  if (matchingCall === undefined) return false;
+): { hasMatchingArgs: boolean; failureReasons: readonly string[] } {
+  if (matchingCall === undefined) return { hasMatchingArgs: false, failureReasons: [] };
   const expectedCanonical = canonicalizeArgs(evalCase.expectedTool, evalCase.expectedInput);
   const actualCanonical = canonicalizeArgs(evalCase.expectedTool, matchingCall.arguments);
   const matched = JSON.stringify(actualCanonical) === JSON.stringify(expectedCanonical);
-  if (!matched) {
-    failureReasons.push(
-      `Arguments mismatch: expected ${JSON.stringify(expectedCanonical)}, got ${JSON.stringify(actualCanonical)}.`,
-    );
-  }
-  return matched;
+  return {
+    hasMatchingArgs: matched,
+    failureReasons: matched
+      ? []
+      : [
+          `Arguments mismatch: expected ${JSON.stringify(expectedCanonical)}, got ${JSON.stringify(actualCanonical)}.`,
+        ],
+  };
 }
 
 function checkToolOutputMatch(
   evalCase: EvalCase,
   matchingCall: RecordedToolCall | undefined,
-  failureReasons: string[],
-): boolean {
-  if (matchingCall === undefined) return false;
+): { hasMatchingToolOutput: boolean; failureReasons: readonly string[] } {
+  if (matchingCall === undefined) return { hasMatchingToolOutput: false, failureReasons: [] };
   if (evalCase.expectedError !== undefined) {
     const matched =
       matchingCall.isError && matchingCall.textContent.includes(evalCase.expectedError);
-    if (!matched) {
-      failureReasons.push(`Expected tool error containing "${evalCase.expectedError}".`);
-    }
-    return matched;
+    return {
+      hasMatchingToolOutput: matched,
+      failureReasons: matched
+        ? []
+        : [`Expected tool error containing "${evalCase.expectedError}".`],
+    };
   }
   if (matchingCall.isError || matchingCall.structuredContent === undefined) {
-    failureReasons.push(`Tool call returned error: ${matchingCall.textContent}`);
-    return false;
+    return {
+      hasMatchingToolOutput: false,
+      failureReasons: [`Tool call returned error: ${matchingCall.textContent}`],
+    };
   }
   if (
     evalCase.expectedOutput !== undefined &&
     !matchesExpectedObject(matchingCall.structuredContent, evalCase.expectedOutput)
   ) {
-    failureReasons.push("Tool structuredContent did not match golden expected output.");
-    return false;
+    return {
+      hasMatchingToolOutput: false,
+      failureReasons: ["Tool structuredContent did not match golden expected output."],
+    };
   }
-  return true;
+  return { hasMatchingToolOutput: true, failureReasons: [] };
 }
 
 function checkProseMatch(
   evalCase: EvalCase,
   finalAnswer: string,
-  failureReasons: string[],
-): { hasExpectedProseAmounts: boolean; missingAmounts: number[] } {
+): {
+  hasExpectedProseAmounts: boolean;
+  missingAmounts: readonly number[];
+  failureReasons: readonly string[];
+} {
   if (evalCase.expectedError !== undefined) {
-    const hasExpectedProseAmounts =
-      /skbbk|lindung\s*24\s*jam/i.test(finalAnswer) && OPT_OUT_REFUSAL_RE.test(finalAnswer);
-    if (!hasExpectedProseAmounts) {
-      failureReasons.push(
-        "Final answer did not clearly explain that foreign workers cannot opt out of SKBBK.",
-      );
-    }
-    return { hasExpectedProseAmounts, missingAmounts: [] };
+    const explainsRefusal =
+      REFUSAL_EXPLANATION_RE.test(finalAnswer) && !AFFIRMATIVE_OPT_OUT_RE.test(finalAnswer);
+    return {
+      hasExpectedProseAmounts: explainsRefusal,
+      missingAmounts: [],
+      failureReasons: explainsRefusal
+        ? []
+        : ["Final answer did not clearly explain the statutory refusal."],
+    };
   }
 
   const missingAmounts = headlineNumbers(evalCase).filter(
     (num) => !containsRmAmount(finalAnswer, num),
   );
   const hasExpectedProseAmounts = missingAmounts.length === 0;
-  if (!hasExpectedProseAmounts) {
-    failureReasons.push(
-      `Final answer missing expected RM amounts: ${missingAmounts.map((n) => n.toFixed(2)).join(", ")}.`,
-    );
-  }
-  return { hasExpectedProseAmounts, missingAmounts };
+  return {
+    hasExpectedProseAmounts,
+    missingAmounts,
+    failureReasons: hasExpectedProseAmounts
+      ? []
+      : [
+          `Final answer missing expected RM amounts: ${missingAmounts
+            .map((n) => n.toFixed(2))
+            .join(", ")}.`,
+        ],
+  };
 }
 
 /** Parses and validates the JSON response returned by the LLM judge. */
@@ -528,6 +559,7 @@ export function buildScorecard(params: {
   readonly agentModel: string;
   readonly judgeModel: string;
   readonly thresholds?: GateThresholds;
+  readonly generatedAt?: string;
 }): Scorecard {
   const thresholds = params.thresholds ?? DEFAULT_THRESHOLDS;
   const layer1Summary = summarizeLayer1(params.cases);
@@ -547,7 +579,7 @@ export function buildScorecard(params: {
   );
 
   return {
-    generatedAt: new Date().toISOString(),
+    generatedAt: params.generatedAt ?? new Date().toISOString(),
     agentModel: params.agentModel,
     judgeModel: params.judgeModel,
     totalCases: layer1Summary.total,
@@ -587,23 +619,23 @@ function collectGateFailures(
   hallucinatedCitations: number,
   thresholds: GateThresholds,
 ): string[] {
-  const failures: string[] = [];
-  if (passed < thresholds.minLayer1Passed) {
-    failures.push(
-      `Layer 1 deterministic pass count ${passed}/${total} is below threshold ${thresholds.minLayer1Passed}/${total}.`,
-    );
-  }
-  if (overallMean < thresholds.minMeanRubricScore) {
-    failures.push(
-      `Layer 2 mean rubric score ${overallMean.toFixed(2)}/${MAX_RUBRIC_SCORE.toFixed(2)} is below threshold ${thresholds.minMeanRubricScore.toFixed(2)}/${MAX_RUBRIC_SCORE.toFixed(2)}.`,
-    );
-  }
-  if (hallucinatedCitations > thresholds.maxHallucinatedCitations) {
-    failures.push(
-      `Layer 2 detected ${hallucinatedCitations} case(s) with hallucinated citations (max allowed: ${thresholds.maxHallucinatedCitations}).`,
-    );
-  }
-  return failures;
+  return [
+    ...(passed < thresholds.minLayer1Passed
+      ? [
+          `Layer 1 deterministic pass count ${passed}/${total} is below threshold ${thresholds.minLayer1Passed}/${total}.`,
+        ]
+      : []),
+    ...(overallMean < thresholds.minMeanRubricScore
+      ? [
+          `Layer 2 mean rubric score ${overallMean.toFixed(2)}/${MAX_RUBRIC_SCORE.toFixed(2)} is below threshold ${thresholds.minMeanRubricScore.toFixed(2)}/${MAX_RUBRIC_SCORE.toFixed(2)}.`,
+        ]
+      : []),
+    ...(hallucinatedCitations > thresholds.maxHallucinatedCitations
+      ? [
+          `Layer 2 detected ${hallucinatedCitations} case(s) with hallucinated citations (max allowed: ${thresholds.maxHallucinatedCitations}).`,
+        ]
+      : []),
+  ];
 }
 
 /** Renders the scorecard as a Markdown report for CI job summaries and artifacts. */

@@ -52,7 +52,9 @@ malaysia-payroll-mcp/
 ├── evals/
 │   ├── cases.jsonl            # 35 prompts paired 1:1 with test/golden/cases.json
 │   ├── grading.ts             # Layer 1 deterministic checks, Layer 2 rubric parser and scorecard
-│   └── run.ts                 # Anthropic/OpenAI/offline agent + judge loop over InMemoryTransport
+│   ├── providers.ts           # Anthropic and OpenAI LLM client adapters
+│   ├── runner.ts              # Agent tool loop, judge orchestration, and scorecard writer
+│   └── run.ts                 # CLI entry point for running the eval suite
 ├── server.json                # planned: MCP Registry manifest
 └── .github/
     ├── dependabot.yml
@@ -120,12 +122,12 @@ Resources: `payroll://tables/{kind}/{effectiveFrom}`, for example `payroll://tab
 | --- | --- | --- | --- |
 | Lint, format and types | Biome, `tsc --noEmit` | every PR | required |
 | Generated tables up to date | `pnpm gen:tables:check` (fails on any changed, missing or stale generated file) | every PR | required |
-| Golden unit tests | Vitest | every PR, Node 24 and 26 | required, 100% coverage of `src/` except `src/entry/` |
+| Golden unit tests | Vitest | every PR, Node 24 and 26 | required, 100% coverage of `src/` (except `src/entry/`) and `evals/` (except `evals/run.ts`) |
 | MCP contract | Vitest plus `InMemoryTransport` client | every PR | required |
-| Agent eval | `evals/run.ts`, `claude-haiku-4-5` (`ANTHROPIC_API_KEY`) or `gpt-4o-mini` (`OPENAI_API_KEY`), temperature 0 (ADR 0004) | same-repo PRs touching `src/` or `evals/` | required: Layer 1 >= 33/35, Layer 2 mean >= 4.0/5.0, 0 hallucinated citations |
+| Agent eval | `evals/run.ts`, `claude-haiku-4-5` (`ANTHROPIC_API_KEY`) or `gpt-4o-mini` (`OPENAI_API_KEY`), temperature 0 (ADR 0004) | same-repo PRs and `main` pushes touching `src/`, `evals/`, or dependencies | required: Layer 1 >= 33/35, Layer 2 mean >= 4.0/5.0, 0 hallucinated citations |
 | Manual | MCP Inspector, Claude Desktop, Claude Code | before each tag | checklist |
 
-**Eval cost and key exposure.** Evals spend API credits, and fork PRs can't see secrets. So the eval job runs only on same-repo PRs (`pull_request` event, never `pull_request_target`), and fork PRs run unit tests only. It uses `ANTHROPIC_API_KEY` (`claude-haiku-4-5`) or `OPENAI_API_KEY` (`gpt-4o-mini`) at temperature 0, runs cases with bounded concurrency (5) and hard `max_tokens` limits, is skipped when `src/` and `evals/` are unchanged, and the API key has a monthly spend limit.
+**Eval cost and key exposure.** Evals spend API credits, and fork PRs can't see secrets. So the eval job runs only on same-repo PRs (`pull_request` event, never `pull_request_target`), and fork PRs run unit tests only. It uses `ANTHROPIC_API_KEY` (`claude-haiku-4-5`) or `OPENAI_API_KEY` (`gpt-4o-mini`) at temperature 0, runs cases with bounded concurrency (5) and hard `max_tokens` limits, is skipped when `src/`, `evals/`, and dependency lockfiles are unchanged, and the API key has a monthly spend limit.
 
 ## Release and infrastructure
 

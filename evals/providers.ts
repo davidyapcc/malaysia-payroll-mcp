@@ -110,47 +110,65 @@ export function createOpenAiClient(apiKey: string, fetchFn: typeof fetch = fetch
   };
 }
 
+export function createAnthropicClient(apiKey: string, customFetch?: typeof fetch): LlmClient {
+  const anthropic = new Anthropic({
+    apiKey,
+    ...(customFetch !== undefined ? { fetch: customFetch } : {}),
+  });
+  return {
+    messages: {
+      async create(params: MessagesCreateParams): Promise<MessagesResponseLike> {
+        const response = await anthropic.messages.create({
+          model: params.model,
+          max_tokens: params.max_tokens,
+          system: params.system,
+          tools: params.tools as Tool[],
+          messages: params.messages,
+        });
+        return {
+          stop_reason: response.stop_reason,
+          content: response.content as ContentBlockLike[],
+        };
+      },
+    },
+  };
+}
+
 function toOpenAiMessages(
   system: string,
   messages: readonly MessageParam[],
 ): Record<string, unknown>[] {
-  const out: Record<string, unknown>[] = [{ role: "system", content: system }];
-
-  for (const msg of messages) {
+  const systemMsg = { role: "system", content: system };
+  const converted = messages.flatMap((msg) => {
     if (typeof msg.content === "string") {
-      out.push({ role: msg.role, content: msg.content });
-    } else if (msg.role === "assistant") {
-      out.push(convertAssistantBlocks(msg.content as unknown as ContentBlockLike[]));
-    } else {
-      for (const block of msg.content as ToolResultBlockParam[]) {
-        out.push({
-          role: "tool",
-          tool_call_id: block.tool_use_id,
-          content: String(block.content),
-        });
-      }
+      return [{ role: msg.role, content: msg.content }];
     }
-  }
-  return out;
+    if (msg.role === "assistant") {
+      return [convertAssistantBlocks(msg.content as unknown as ContentBlockLike[])];
+    }
+    return (msg.content as ToolResultBlockParam[]).map((block) => ({
+      role: "tool",
+      tool_call_id: block.tool_use_id,
+      content: String(block.content),
+    }));
+  });
+  return [systemMsg, ...converted];
 }
 
 function convertAssistantBlocks(blocks: readonly ContentBlockLike[]): Record<string, unknown> {
-  const textParts: string[] = [];
-  const toolCalls: Record<string, unknown>[] = [];
-  for (const b of blocks) {
-    if (b.type === "text" && typeof b.text === "string") {
-      textParts.push(b.text);
-    } else {
-      toolCalls.push({
-        id: String(b.id),
-        type: "function",
-        function: {
-          name: String(b.name),
-          arguments: JSON.stringify(b.input ?? {}),
-        },
-      });
-    }
-  }
+  const textParts = blocks
+    .filter((b) => b.type === "text" && typeof b.text === "string")
+    .map((b) => b.text as string);
+  const toolCalls = blocks
+    .filter((b) => b.type !== "text")
+    .map((b) => ({
+      id: String(b.id),
+      type: "function",
+      function: {
+        name: String(b.name),
+        arguments: JSON.stringify(b.input ?? {}),
+      },
+    }));
 
   return {
     role: "assistant",
@@ -167,25 +185,26 @@ function parseOpenAiResponse(rawJson: unknown): MessagesResponseLike {
 
   const choice = parsed.data.choices[0];
   const message = choice?.message;
-  const content: ContentBlockLike[] = [];
-
-  if (typeof message?.content === "string" && message.content.length > 0) {
-    content.push({ type: "text", text: message.content });
-  }
-  for (const tc of message?.tool_calls ?? []) {
-    const parsedArgs: unknown = JSON.parse(tc.function.arguments);
-    content.push({
-      type: "tool_use",
-      id: tc.id,
-      name: tc.function.name,
-      input: parsedArgs,
-    });
-  }
+  const textBlocks: ContentBlockLike[] =
+    typeof message?.content === "string" && message.content.length > 0
+      ? [{ type: "text", text: message.content }]
+      : [];
+  const toolUseBlocks: ContentBlockLike[] = (message?.tool_calls ?? []).map((tc) => ({
+    type: "tool_use",
+    id: tc.id,
+    name: tc.function.name,
+    input: JSON.parse(tc.function.arguments) as unknown,
+  }));
 
   return {
     stop_reason: choice?.finish_reason === "tool_calls" ? "tool_use" : "end_turn",
-    content,
+    content: [...textBlocks, ...toolUseBlocks],
   };
+}
+
+function getModelName(envVal: string | undefined, defaultModel: string): string {
+  const trimmed = envVal?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : defaultModel;
 }
 
 export interface ResolvedProvider {
@@ -230,9 +249,9 @@ export function resolveProvider(
       throw new Error('EVAL_PROVIDER is "anthropic", but ANTHROPIC_API_KEY is not set.');
     }
     return {
-      client: new Anthropic({ apiKey: anthropicKey }) as unknown as LlmClient,
-      agentModel: env.EVAL_AGENT_MODEL?.trim() || DEFAULT_ANTHROPIC_MODEL,
-      judgeModel: env.EVAL_JUDGE_MODEL?.trim() || DEFAULT_ANTHROPIC_MODEL,
+      client: createAnthropicClient(anthropicKey, fetchFn),
+      agentModel: getModelName(env.EVAL_AGENT_MODEL, DEFAULT_ANTHROPIC_MODEL),
+      judgeModel: getModelName(env.EVAL_JUDGE_MODEL, DEFAULT_ANTHROPIC_MODEL),
     };
   }
   if (openAiKey === "") {
@@ -240,7 +259,7 @@ export function resolveProvider(
   }
   return {
     client: createOpenAiClient(openAiKey, fetchFn),
-    agentModel: env.EVAL_AGENT_MODEL?.trim() || DEFAULT_OPENAI_MODEL,
-    judgeModel: env.EVAL_JUDGE_MODEL?.trim() || DEFAULT_OPENAI_MODEL,
+    agentModel: getModelName(env.EVAL_AGENT_MODEL, DEFAULT_OPENAI_MODEL),
+    judgeModel: getModelName(env.EVAL_JUDGE_MODEL, DEFAULT_OPENAI_MODEL),
   };
 }

@@ -9,15 +9,18 @@ import {
   canonicalizeArgs,
   containsRmAmount,
   DEFAULT_THRESHOLDS,
+  type EvalCase,
   evaluateLayer1,
   type GoldenFile,
   headlineNumbers,
+  isPlainObject,
   matchesExpectedObject,
   parseCasesJsonl,
   parseJudgeResponse,
   renderScorecardMarkdown,
 } from "../evals/grading.js";
 import {
+  createAnthropicClient,
   createOpenAiClient,
   DEFAULT_ANTHROPIC_MODEL,
   DEFAULT_OPENAI_MODEL,
@@ -26,6 +29,7 @@ import {
   type MessagesResponseLike,
   resolveProvider,
 } from "../evals/providers.js";
+import { runCli } from "../evals/run.js";
 import {
   loadEvalCases,
   parseConcurrency,
@@ -88,7 +92,7 @@ describe("evals/cases.jsonl completeness and validation", () => {
 });
 
 describe("Layer 1: argument canonicalization and number matching", () => {
-  it("normalizes optional schema defaults across all four tools", () => {
+  it("normalizes optional schema defaults for EPF and SOCSO/EIS", () => {
     expect(
       canonicalizeArgs("calculate_epf", {
         monthlySalary: 3000,
@@ -123,7 +127,9 @@ describe("Layer 1: argument canonicalization and number matching", () => {
         payPeriod: "2026-11",
       }),
     );
+  });
 
+  it("normalizes optional schema defaults for MTD January and mid-year", () => {
     expect(
       canonicalizeArgs("calculate_mtd", {
         monthlySalary: 5000,
@@ -199,15 +205,14 @@ describe("Layer 1: argument canonicalization and number matching", () => {
     expect(containsRmAmount("Employee aged 30 at rate 11% in 2026.", 30)).toBe(false);
     expect(containsRmAmount("Employee aged 30 at rate 11% in 2026.", 11)).toBe(false);
     expect(containsRmAmount("Chargeable income P is RM 47,000.07 in 2026.", 70)).toBe(false);
+    expect(containsRmAmount("You are not exempt: employee pays RM1.30.", 0)).toBe(false);
   });
 
-  it("evaluates SOC-05 error handling and detects missing tool calls, bad outputs or missing numbers", () => {
+  it("evaluates SOC-05 refusal explanation and rejects acceptance claims", () => {
     const evalCases = loadEvalCases();
     const soc05 = evalCases.find((s) => s.id === "SOC-05");
-    const epf02 = evalCases.find((s) => s.id === "EPF-02");
     expect(soc05).toBeDefined();
-    expect(epf02).toBeDefined();
-    if (!soc05 || !epf02) return;
+    if (!soc05) return;
 
     const soc05Pass = evaluateLayer1(
       soc05,
@@ -222,6 +227,28 @@ describe("Layer 1: argument canonicalization and number matching", () => {
       "Foreign workers cannot opt out of SKBBK (Lindung 24 Jam); coverage is mandatory.",
     );
     expect(soc05Pass.isPassed).toBe(true);
+
+    const soc05Acceptance = evaluateLayer1(
+      soc05,
+      [
+        {
+          name: "calculate_socso_eis",
+          arguments: soc05.expectedInput,
+          isError: true,
+          textContent: "Foreign workers can't opt out of SKBBK",
+        },
+      ],
+      "Yes, foreign workers can opt out of SKBBK.",
+    );
+    expect(soc05Acceptance.isPassed).toBe(false);
+    expect(soc05Acceptance.hasExpectedProseAmounts).toBe(false);
+  });
+
+  it("fails Layer 1 when expected tool is missing or incorrect tool is called", () => {
+    const evalCases = loadEvalCases();
+    const soc05 = evalCases.find((s) => s.id === "SOC-05");
+    expect(soc05).toBeDefined();
+    if (!soc05) return;
 
     const soc05NoTool = evaluateLayer1(soc05, [], "Foreign workers cannot opt out of SKBBK.");
     expect(soc05NoTool.isPassed).toBe(false);
@@ -241,6 +268,15 @@ describe("Layer 1: argument canonicalization and number matching", () => {
     );
     expect(soc05WrongTool.hasExpectedTool).toBe(false);
     expect(soc05WrongTool.failureReasons[0]).toContain("calculate_mtd");
+  });
+
+  it("fails Layer 1 on unexpected tool errors or missing expected errors", () => {
+    const evalCases = loadEvalCases();
+    const soc05 = evalCases.find((s) => s.id === "SOC-05");
+    const epf02 = evalCases.find((s) => s.id === "EPF-02");
+    expect(soc05).toBeDefined();
+    expect(epf02).toBeDefined();
+    if (!soc05 || !epf02) return;
 
     const soc05WrongError = evaluateLayer1(
       soc05,
@@ -255,7 +291,27 @@ describe("Layer 1: argument canonicalization and number matching", () => {
       "All good.",
     );
     expect(soc05WrongError.hasMatchingToolOutput).toBe(false);
-    expect(soc05WrongError.hasExpectedProseAmounts).toBe(false);
+
+    const epfToolError = evaluateLayer1(
+      epf02,
+      [
+        {
+          name: "calculate_epf",
+          arguments: epf02.expectedInput,
+          isError: true,
+          textContent: "unexpected failure",
+        },
+      ],
+      "RM390.00 RM330.00 RM720.00",
+    );
+    expect(epfToolError.hasMatchingToolOutput).toBe(false);
+  });
+
+  it("fails Layer 1 on argument mismatches, output mismatches, and missing amounts", () => {
+    const evalCases = loadEvalCases();
+    const epf02 = evalCases.find((s) => s.id === "EPF-02");
+    expect(epf02).toBeDefined();
+    if (!epf02) return;
 
     const epfFail = evaluateLayer1(
       epf02,
@@ -275,20 +331,13 @@ describe("Layer 1: argument canonicalization and number matching", () => {
     expect(epfFail.hasMatchingToolOutput).toBe(false);
     expect(epfFail.hasExpectedProseAmounts).toBe(false);
     expect(epfFail.missingAmounts).toEqual([330, 720]);
+  });
 
-    const epfToolError = evaluateLayer1(
-      epf02,
-      [
-        {
-          name: "calculate_epf",
-          arguments: epf02.expectedInput,
-          isError: true,
-          textContent: "unexpected failure",
-        },
-      ],
-      "RM390.00 RM330.00 RM720.00",
-    );
-    expect(epfToolError.hasMatchingToolOutput).toBe(false);
+  it("handles custom cases with no expected golden output", () => {
+    const evalCases = loadEvalCases();
+    const epf02 = evalCases.find((s) => s.id === "EPF-02");
+    expect(epf02).toBeDefined();
+    if (!epf02) return;
 
     const noExpectedCase = {
       id: "CUSTOM-01",
@@ -314,6 +363,9 @@ describe("Layer 1: argument canonicalization and number matching", () => {
 
     expect(matchesExpectedObject(null, { a: 1 })).toBe(false);
     expect(matchesExpectedObject({ nested: { a: 1 } }, { nested: { a: 2 } })).toBe(false);
+    expect(isPlainObject({ a: 1 })).toBe(true);
+    expect(isPlainObject([])).toBe(false);
+    expect(isPlainObject(null)).toBe(false);
   });
 });
 
@@ -382,47 +434,32 @@ describe("Providers and concurrency validation", () => {
     expect(() => createOpenAiClient("   ")).toThrow("OPENAI_API_KEY must be a non-empty string.");
   });
 
-  it("adapts OpenAI Chat Completions and surfaces HTTP, schema and malformed JSON errors", async () => {
-    const requests: unknown[] = [];
+  it("dispatches tool-use request and maps OpenAI tool_calls response", async () => {
+    let capturedBody: Record<string, unknown> | undefined;
     const mockFetch: typeof fetch = async (_input, init) => {
-      requests.push(JSON.parse(String(init?.body ?? "{}")));
-      if (requests.length === 1) {
-        return new Response(
-          JSON.stringify({
-            choices: [
-              {
-                finish_reason: "tool_calls",
-                message: {
-                  content: "Calling tool...",
-                  tool_calls: [
-                    {
-                      id: "call_1",
-                      type: "function",
-                      function: {
-                        name: "calculate_epf",
-                        arguments: JSON.stringify({
-                          monthlySalary: 3000,
-                          age: 30,
-                          citizenship: "malaysian",
-                          payPeriod: "2026-11",
-                        }),
-                      },
-                    },
-                  ],
-                },
-              },
-            ],
-          }),
-          { status: 200 },
-        );
-      }
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
       return new Response(
         JSON.stringify({
           choices: [
             {
-              finish_reason: "stop",
+              finish_reason: "tool_calls",
               message: {
-                content: "Employee RM330.00, Employer RM390.00, Total RM720.00.",
+                content: "Calling tool...",
+                tool_calls: [
+                  {
+                    id: "call_1",
+                    type: "function",
+                    function: {
+                      name: "calculate_epf",
+                      arguments: JSON.stringify({
+                        monthlySalary: 3000,
+                        age: 30,
+                        citizenship: "malaysian",
+                        payPeriod: "2026-11",
+                      }),
+                    },
+                  },
+                ],
               },
             },
           ],
@@ -454,7 +491,30 @@ describe("Providers and concurrency validation", () => {
       name: "calculate_epf",
       input: { monthlySalary: 3000, age: 30, citizenship: "malaysian", payPeriod: "2026-11" },
     });
+    expect(capturedBody?.model).toBe("gpt-4o-mini");
+    expect(capturedBody?.parallel_tool_calls).toBe(false);
+  });
 
+  it("serializes multi-turn assistant messages and tool results to OpenAI format", async () => {
+    let capturedBody: Record<string, unknown> | undefined;
+    const mockFetch: typeof fetch = async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: "Employee RM330.00, Employer RM390.00, Total RM720.00.",
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    };
+
+    const client = createOpenAiClient("sk-test-openai", mockFetch);
     const second = await client.messages.create({
       model: "gpt-4o-mini",
       max_tokens: 512,
@@ -483,8 +543,35 @@ describe("Providers and concurrency validation", () => {
         },
       ],
     });
-    expect(second.stop_reason).toBe("end_turn");
 
+    expect(second.stop_reason).toBe("end_turn");
+    expect(second.content[0]).toEqual({
+      type: "text",
+      text: "Employee RM330.00, Employer RM390.00, Total RM720.00.",
+    });
+    expect(capturedBody?.messages).toEqual([
+      { role: "system", content: "sys" },
+      { role: "user", content: "hi" },
+      {
+        role: "assistant",
+        content: "Thinking...",
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "calculate_epf", arguments: "{}" } },
+        ],
+      },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          { id: "call_2", type: "function", function: { name: "calculate_epf", arguments: "{}" } },
+        ],
+      },
+      { role: "assistant", content: "Just text" },
+      { role: "tool", tool_call_id: "call_1", content: "{}" },
+    ]);
+  });
+
+  it("surfaces OpenAI API HTTP errors", async () => {
     const errorClient = createOpenAiClient(
       "sk-test",
       async () => new Response("bad key", { status: 401 }),
@@ -498,7 +585,9 @@ describe("Providers and concurrency validation", () => {
         messages: [{ role: "user", content: "hi" }],
       }),
     ).rejects.toThrow("OpenAI API error (401): bad key");
+  });
 
+  it("surfaces invalid OpenAI response shape errors", async () => {
     const badShapeClient = createOpenAiClient(
       "sk-test",
       async () => new Response(JSON.stringify({ choices: [] }), { status: 200 }),
@@ -512,7 +601,9 @@ describe("Providers and concurrency validation", () => {
         messages: [{ role: "user", content: "hi" }],
       }),
     ).rejects.toThrow("Invalid OpenAI response shape");
+  });
 
+  it("surfaces malformed tool arguments JSON errors", async () => {
     const badArgsClient = createOpenAiClient(
       "sk-test",
       async () =>
@@ -540,83 +631,118 @@ describe("Providers and concurrency validation", () => {
         system: "s",
         messages: [{ role: "user", content: "hi" }],
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(SyntaxError);
+  });
+
+  it("creates an Anthropic client adapter instance with default fetch", () => {
+    const client = createAnthropicClient("sk-ant-test");
+    expect(client.messages).toBeDefined();
+    expect(typeof client.messages.create).toBe("function");
+  });
+
+  it("creates an Anthropic client adapter and dispatches messages.create", async () => {
+    const mockFetch: typeof fetch = async () =>
+      new Response(
+        JSON.stringify({
+          id: "msg_123",
+          type: "message",
+          role: "assistant",
+          content: [{ type: "text", text: "Anthropic response" }],
+          model: "claude-haiku-4-5",
+          stop_reason: "end_turn",
+          usage: { input_tokens: 10, output_tokens: 5 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    const client = createAnthropicClient("sk-ant-test", mockFetch);
+    expect(client.messages).toBeDefined();
+    const result = await client.messages.create({
+      model: "claude-haiku-4-5",
+      max_tokens: 10,
+      temperature: 0,
+      system: "sys",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(result.stop_reason).toBe("end_turn");
+    expect(result.content).toEqual([{ type: "text", text: "Anthropic response" }]);
   });
 });
 
-describe("End-to-end eval harness over all 35 golden cases (in-memory MCP server)", () => {
-  it("runs all 35 cases through the MCP server and passes both Layer 1 and Layer 2 gates", async () => {
-    const evalCases = loadEvalCases();
-    const caseByPrompt = new Map(evalCases.map((c) => [c.prompt, c]));
-
-    const mockLlm: LlmClient = {
-      messages: {
-        async create(params: MessagesCreateParams): Promise<MessagesResponseLike> {
-          if (params.tools === undefined) {
-            return {
-              stop_reason: "end_turn",
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    citationFaithfulness: 5,
-                    completeness: 5,
-                    clarity: 5,
-                    hallucinatedCitation: false,
-                    rationale: "Faithful citation and exact statutory figures.",
-                  }),
-                },
-              ],
-            };
-          }
-
-          const promptText = params.messages[0]?.content;
-          const evalCase =
-            typeof promptText === "string" ? caseByPrompt.get(promptText) : undefined;
-          if (!evalCase) throw new Error(`Unknown prompt: ${String(promptText)}`);
-
-          if (params.messages.length === 1) {
-            return {
-              stop_reason: "tool_use",
-              content: [
-                { type: "text", text: "Checking tool..." },
-                {
-                  type: "tool_use",
-                  id: `call_${evalCase.id}`,
-                  name: evalCase.expectedTool,
-                  input: evalCase.expectedInput,
-                },
-              ],
-            };
-          }
-
-          if (evalCase.expectedError !== undefined) {
-            return {
-              stop_reason: "end_turn",
-              content: [
-                {
-                  type: "text",
-                  text: "Foreign workers cannot opt out of SKBBK (Lindung 24 Jam). Not tax advice; fixed salaries only.",
-                },
-              ],
-            };
-          }
-
-          const nums = headlineNumbers(evalCase)
-            .map((n) => `RM${n.toFixed(2)}`)
-            .join(", ");
+function createMockGoldenLlm(caseByPrompt: Map<string, EvalCase>): LlmClient {
+  return {
+    messages: {
+      async create(params: MessagesCreateParams): Promise<MessagesResponseLike> {
+        if (params.tools === undefined) {
           return {
             stop_reason: "end_turn",
             content: [
               {
                 type: "text",
-                text: `Statutory figures: ${nums}. Cited from official rate table. Not tax or legal advice; fixed monthly salaries only.`,
+                text: JSON.stringify({
+                  citationFaithfulness: 5,
+                  completeness: 5,
+                  clarity: 5,
+                  hallucinatedCitation: false,
+                  rationale: "Faithful citation and exact statutory figures.",
+                }),
               },
             ],
           };
-        },
+        }
+
+        const promptText = params.messages[0]?.content;
+        const evalCase = typeof promptText === "string" ? caseByPrompt.get(promptText) : undefined;
+        if (!evalCase) throw new Error(`Unknown prompt: ${String(promptText)}`);
+
+        if (params.messages.length === 1) {
+          return {
+            stop_reason: "tool_use",
+            content: [
+              { type: "text", text: "Checking tool..." },
+              {
+                type: "tool_use",
+                id: `call_${evalCase.id}`,
+                name: evalCase.expectedTool,
+                input: evalCase.expectedInput,
+              },
+            ],
+          };
+        }
+
+        if (evalCase.expectedError !== undefined) {
+          return {
+            stop_reason: "end_turn",
+            content: [
+              {
+                type: "text",
+                text: "Foreign workers cannot opt out of SKBBK (Lindung 24 Jam). Not tax advice; fixed salaries only.",
+              },
+            ],
+          };
+        }
+
+        const nums = headlineNumbers(evalCase)
+          .map((n) => `RM${n.toFixed(2)}`)
+          .join(", ");
+        return {
+          stop_reason: "end_turn",
+          content: [
+            {
+              type: "text",
+              text: `Statutory figures: ${nums}. Cited from official rate table. Not tax or legal advice; fixed monthly salaries only.`,
+            },
+          ],
+        };
       },
-    };
+    },
+  };
+}
+
+describe("End-to-end eval harness over all 35 golden cases (in-memory MCP server)", () => {
+  it("runs all 35 cases through the MCP server and passes both Layer 1 and Layer 2 gates", async () => {
+    const evalCases = loadEvalCases();
+    const caseByPrompt = new Map(evalCases.map((c) => [c.prompt, c]));
+    const mockLlm = createMockGoldenLlm(caseByPrompt);
 
     const scorecard = await runEvalSuite({
       evalCases,
@@ -631,7 +757,14 @@ describe("End-to-end eval harness over all 35 golden cases (in-memory MCP server
     expect(scorecard.layer2Summary.overallMean).toBe(5);
     expect(scorecard.layer2Summary.hallucinatedCitations).toBe(0);
     expect(scorecard.isGatePassed).toBe(true);
+  });
 
+  it("writes scorecard JSON, markdown and step-summary files", () => {
+    const scorecard = buildScorecard({
+      cases: [],
+      agentModel: "mock-agent",
+      judgeModel: "mock-judge",
+    });
     const tempDir = mkdtempSync(join(tmpdir(), "payroll-eval-test-"));
     try {
       const summaryFile = join(tempDir, "step-summary.md");
@@ -640,9 +773,9 @@ describe("End-to-end eval harness over all 35 golden cases (in-memory MCP server
       const writtenJson = JSON.parse(readFileSync(jsonPath, "utf8"));
       const writtenMd = readFileSync(markdownPath, "utf8");
       const summaryMd = readFileSync(summaryFile, "utf8");
-      expect(writtenJson.totalCases).toBe(35);
-      expect(writtenMd).toContain("Malaysia Payroll MCP — Agent Eval Scorecard (PASS)");
-      expect(summaryMd).toContain("| NP-05 |");
+      expect(writtenJson.totalCases).toBe(0);
+      expect(writtenMd).toContain("Malaysia Payroll MCP — Agent Eval Scorecard (FAIL)");
+      expect(summaryMd).toContain("## Layer 1: Deterministic Tool-Use Summary");
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -688,8 +821,165 @@ describe("End-to-end eval harness over all 35 golden cases (in-memory MCP server
       llm: badJudgeLlm,
     });
     expect(scorecard.totalCases).toBe(1);
-    expect(scorecard.cases[0]?.layer2.hasHallucinatedCitation).toBe(true);
+    expect(scorecard.cases[0]?.layer2.hasHallucinatedCitation).toBe(false);
     expect(scorecard.cases[0]?.layer2.rationale).toContain("Judge evaluation failed");
+  });
+
+  it("records a failed rubric score when judge rejects with a non-Error value", async () => {
+    const [firstCase] = loadEvalCases();
+    expect(firstCase).toBeDefined();
+    if (!firstCase) return;
+
+    const stringRejectLlm: LlmClient = {
+      messages: {
+        async create(params: MessagesCreateParams): Promise<MessagesResponseLike> {
+          if (params.tools === undefined) {
+            return Promise.reject("judge network down");
+          }
+          return {
+            stop_reason: "end_turn",
+            content: [{ type: "text", text: "RM0.00" }],
+          };
+        },
+      },
+    };
+
+    const scorecard = await runEvalSuite({
+      evalCases: [firstCase],
+      llm: stringRejectLlm,
+    });
+    expect(scorecard.totalCases).toBe(1);
+    expect(scorecard.cases[0]?.layer2.hasHallucinatedCitation).toBe(false);
+    expect(scorecard.cases[0]?.layer2.rationale).toBe(
+      "Judge evaluation failed: judge network down",
+    );
+  });
+
+  function createMockOpenAiCliFetch(evalCase: EvalCase): typeof fetch {
+    let calls = 0;
+    return async () => {
+      calls++;
+      if (calls === 1) {
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                finish_reason: "tool_calls",
+                message: {
+                  tool_calls: [
+                    {
+                      id: "c1",
+                      type: "function",
+                      function: {
+                        name: evalCase.expectedTool,
+                        arguments: JSON.stringify(evalCase.expectedInput),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (calls === 2) {
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                finish_reason: "stop",
+                message: {
+                  content: "Statutory amount: RM0.00. Official rate table cited.",
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: JSON.stringify({
+                  citationFaithfulness: 5,
+                  completeness: 5,
+                  clarity: 5,
+                  hallucinatedCitation: false,
+                  rationale: "Accurate citation",
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    };
+  }
+
+  it("executes runCli and returns exit code 0 when all gates pass", async () => {
+    const [firstCase] = loadEvalCases();
+    expect(firstCase).toBeDefined();
+    if (!firstCase) return;
+
+    const tempDir = mkdtempSync(join(tmpdir(), "payroll-cli-test-"));
+    try {
+      const exitCode = await runCli(
+        { OPENAI_API_KEY: "sk-test", EVAL_PROVIDER: "openai" },
+        {
+          evalCases: [firstCase],
+          fetchFn: createMockOpenAiCliFetch(firstCase),
+          outDir: tempDir,
+          thresholds: {
+            minLayer1Passed: 1,
+            minMeanRubricScore: 4.0,
+            maxHallucinatedCitations: 0,
+          },
+        },
+      );
+      expect(exitCode).toBe(0);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("executes runCli and returns exit code 1 when eval gate fails", async () => {
+    const [firstCase] = loadEvalCases();
+    expect(firstCase).toBeDefined();
+    if (!firstCase) return;
+
+    const mockFetch: typeof fetch = async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: "No tool called.",
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+
+    const tempDir = mkdtempSync(join(tmpdir(), "payroll-cli-fail-test-"));
+    try {
+      const exitCode = await runCli(
+        { OPENAI_API_KEY: "sk-test", EVAL_PROVIDER: "openai" },
+        {
+          evalCases: [firstCase],
+          fetchFn: mockFetch,
+          outDir: tempDir,
+        },
+      );
+      expect(exitCode).toBe(1);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("fails the gate when Layer 1, Layer 2 mean or hallucinated citations breach thresholds", () => {
