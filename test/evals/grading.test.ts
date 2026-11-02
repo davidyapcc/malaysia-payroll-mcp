@@ -510,6 +510,53 @@ describe("Layer 1: employer and employee shares name their party", () => {
     );
     expect(result.missingAmounts).toEqual([]);
   });
+
+  it("counts 'pays nothing' as a zero share for the party that pays nothing", () => {
+    const epf = {
+      ...findCase("EPF-02"),
+      expectedOutput: { employer: 120, employee: 0, total: 120 },
+    };
+    const correct = "The employer pays the full amount of RM 120, while the employee pays nothing.";
+    const swapped = "The employee pays the full amount of RM 120, while the employer pays nothing.";
+
+    expect(evaluateLayer1(epf, [epf02Call()], correct).missingAmounts).toEqual([]);
+    expect(evaluateLayer1(epf, [epf02Call()], swapped).missingAmounts).toEqual([120, 0]);
+  });
+
+  it("does not count other uses of 'nothing' as a zero share", () => {
+    const epf = {
+      ...findCase("EPF-02"),
+      expectedOutput: { employer: 120, employee: 0, total: 120 },
+    };
+    const answer = "The employer pays RM 120, and the employee has nothing further to do.";
+
+    expect(evaluateLayer1(epf, [epf02Call()], answer).missingAmounts).toEqual([0]);
+  });
+
+  it("attributes one amount to both parties across an 'each' clause", () => {
+    const epf = {
+      ...findCase("EPF-02"),
+      expectedOutput: { employer: 70, employee: 70, total: 140 },
+    };
+    const answers = [
+      "The total is RM 140. This is split between the employee and the employer, with each contributing RM 70.",
+      "The total is RM 140. This is split between the employee and the employer, each paying RM 70.",
+    ];
+
+    for (const answer of answers) {
+      expect(evaluateLayer1(epf, [epf02Call()], answer).missingAmounts).toEqual([]);
+    }
+  });
+
+  it("does not attribute an 'each' clause to a party that is not named", () => {
+    const epf = {
+      ...findCase("EPF-02"),
+      expectedOutput: { employer: 70, employee: 70, total: 140 },
+    };
+    const answer = "The total is RM 140. The employer pays, with each instalment being RM 70.";
+
+    expect(evaluateLayer1(epf, [epf02Call()], answer).missingAmounts).toEqual([70]);
+  });
 });
 
 function epf02Call(): RecordedToolCall {

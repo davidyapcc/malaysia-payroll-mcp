@@ -339,7 +339,7 @@ export function headlineAmounts(evalCase: EvalCase): HeadlineAmount[] {
 
 const RM_PREFIXED_RE = /(?:RM|MYR)\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?![\d%]|\.\d)/gi;
 const DECIMAL_MONEY_RE = /(?<![.\d-])(\d{1,3}(?:,\d{3})+|\d+)\.\d{2}(?![\d%]|\.\d)/g;
-const ZERO_WORD_RE = /(?<!\bnot\s+)\b(?:nil|exempt(?:ed)?|zero)\b/i;
+const ZERO_WORD_RE = /(?<!\bnot\s+)\b(?:nil|exempt(?:ed)?|zero|pays?\s+nothing)\b/i;
 
 /**
  * Checks whether a statutory RM figure appears in natural-language prose, matching RM-prefixed
@@ -358,12 +358,17 @@ export function containsRmAmount(prose: string, amount: number): boolean {
 }
 
 const PARTY_WORD_RE = /\b(employee|employer)s?\b/gi;
-const ZERO_WORD_GLOBAL_RE = /(?<!\bnot\s+)\b(?:nil|exempt(?:ed)?|zero)\b/gi;
+const ZERO_WORD_GLOBAL_RE = /(?<!\bnot\s+)\b(?:nil|exempt(?:ed)?|zero|pays?\s+nothing)\b/gi;
 /**
- * Newlines, semicolons, clause commas and sentence ends split the prose into attribution scopes.
- * A comma inside a number (`RM 3,000`) is followed by a digit, so it does not split.
+ * Semicolons, clause commas and sentence ends split a line into attribution scopes. A comma inside
+ * a number (`RM 3,000`) is followed by a digit, so it does not split. Nor does a comma before an
+ * "each" clause, which refers back to the parties just named.
  */
-const SENTENCE_BREAK_RE = /[\n;]|,\s+(?=\D)|\.\s+(?=[A-Z])/;
+const SENTENCE_BREAK_RE = /;|,\s+(?!(?:with\s+)?each\b)(?=\D)|\.\s+(?=[A-Z])/;
+/** A line that introduces what follows: a Markdown heading, a line ending in a colon, or all bold. */
+const LABEL_LINE_RE = /^\s*#|:[\s*_]*$|^[\s\d.*_-]*\*\*[^*]+\*\*[\s*_]*$/;
+/** A line that is only a "Deductions" heading: deductions come off the employee's pay. */
+const DEDUCTIONS_HEADING_RE = /^[\s#*_-]*(?:\w+\s+)?deductions?[\s:*_#-]*$/i;
 
 interface Span {
   readonly index: number;
@@ -458,25 +463,54 @@ function partiesFor(
   return [nearestParty(amount, scope.parties)];
 }
 
-/** Attributes each RM amount in the prose to one or more parties, carrying the last party forward. */
-function attributeAmounts(prose: string): AttributedAmount[] {
-  const scopes: ScopeMentions[] = prose.split(SENTENCE_BREAK_RE).map((scope) => ({
+interface AttributionState {
+  readonly lastParty: AmountParty | null;
+  readonly attributed: readonly AttributedAmount[];
+}
+
+/**
+ * Attributes one line's amounts. The party carries between scopes within the line. It carries to
+ * later lines only from a label with no amount, so a note on one figure ("employer pays") or a
+ * rule quoted under it does not relabel the figures listed after it.
+ */
+function attributeLine(state: AttributionState, line: string): AttributionState {
+  const scopes: ScopeMentions[] = line.split(SENTENCE_BREAK_RE).map((scope) => ({
     amounts: amountMentionsOf(scope),
     parties: partyMentionsOf(scope),
   }));
-  return scopes.reduce<{ lastParty: AmountParty | null; attributed: AttributedAmount[] }>(
-    (state, scope) => ({
-      lastParty: scope.parties.at(-1)?.party ?? state.lastParty,
+  const withinLine = scopes.reduce<AttributionState>(
+    (current, scope) => ({
+      lastParty: scope.parties.at(-1)?.party ?? current.lastParty,
       attributed: [
-        ...state.attributed,
+        ...current.attributed,
         ...scope.amounts.map((amount) => ({
           value: amount.value,
-          parties: partiesFor(scope, amount, state.lastParty),
+          parties: partiesFor(scope, amount, current.lastParty),
         })),
       ],
     }),
-    { lastParty: null, attributed: [] },
-  ).attributed;
+    { lastParty: state.lastParty, attributed: [] },
+  );
+  return {
+    lastParty: carriedParty(state.lastParty, line, scopes, withinLine),
+    attributed: [...state.attributed, ...withinLine.attributed],
+  };
+}
+
+function carriedParty(
+  previous: AmountParty | null,
+  line: string,
+  scopes: readonly ScopeMentions[],
+  withinLine: AttributionState,
+): AmountParty | null {
+  if (withinLine.attributed.length > 0 || !LABEL_LINE_RE.test(line)) return previous;
+  if (scopes.some((scope) => scope.parties.length > 0)) return withinLine.lastParty;
+  return DEDUCTIONS_HEADING_RE.test(line) ? "employee" : previous;
+}
+
+/** Attributes each RM amount in the prose to one or more parties, line by line. */
+function attributeAmounts(prose: string): readonly AttributedAmount[] {
+  return prose.split("\n").reduce(attributeLine, { lastParty: null, attributed: [] }).attributed;
 }
 
 function isHeadlineAmountFound(
