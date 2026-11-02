@@ -18,6 +18,7 @@ import {
   type SeededControl,
 } from "./controls.ts";
 import {
+  agentErrorLayer1,
   buildEvalCases,
   type CaseEvaluation,
   type EvalCase,
@@ -44,6 +45,8 @@ const MAX_JUDGE_TOKENS = 512;
 const MAX_TOOL_ROUNDS = 3;
 /** The judge gets one retry after a network, HTTP or parse failure. */
 const JUDGE_MAX_ATTEMPTS = 2;
+/** An agent round gets one retry; if it still fails, the case is recorded as an agent error. */
+const AGENT_MAX_ATTEMPTS = 2;
 
 export interface JudgeOutcome {
   readonly score: RubricScore | null;
@@ -142,19 +145,25 @@ export async function evaluateSingleCase(params: {
 }): Promise<CaseEvaluation> {
   const startedAt = Date.now();
   const { evalCase, mcpClient, tools, llm, agentModel, judgeModel } = params;
-  const { toolCalls, finalAnswer } = await runAgentLoop({
-    prompt: evalCase.prompt,
-    mcpClient,
-    tools,
-    llm,
-    agentModel,
-  });
+  let run: AgentRun;
+  try {
+    run = await runAgentLoop({ prompt: evalCase.prompt, mcpClient, tools, llm, agentModel });
+  } catch (error: unknown) {
+    const message = describeError(error);
+    console.error(`Agent error for case ${evalCase.id}: ${message}`);
+    return agentErrorEvaluation(evalCase, message, Date.now() - startedAt);
+  }
 
-  const layer1 = evaluateLayer1(evalCase, toolCalls, finalAnswer);
+  const layer1 = evaluateLayer1(evalCase, run.toolCalls, run.finalAnswer);
   const judge = await judgeAnswer({
     llm,
     judgeModel,
-    input: { caseId: evalCase.id, prompt: evalCase.prompt, toolCalls, finalAnswer },
+    input: {
+      caseId: evalCase.id,
+      prompt: evalCase.prompt,
+      toolCalls: run.toolCalls,
+      finalAnswer: run.finalAnswer,
+    },
   });
 
   return {
@@ -162,12 +171,34 @@ export async function evaluateSingleCase(params: {
     prompt: evalCase.prompt,
     expectedTool: evalCase.expectedTool,
     isMustPass: isMustPassCase(evalCase),
-    toolCalls,
-    finalAnswer,
+    toolCalls: run.toolCalls,
+    finalAnswer: run.finalAnswer,
     layer1,
     layer2: judge.score,
     judgeError: judge.error,
+    agentError: null,
     durationMs: Date.now() - startedAt,
+  };
+}
+
+/** A case whose agent failed twice in a round: not graded, not judged, counted under agent errors. */
+function agentErrorEvaluation(
+  evalCase: EvalCase,
+  message: string,
+  durationMs: number,
+): CaseEvaluation {
+  return {
+    id: evalCase.id,
+    prompt: evalCase.prompt,
+    expectedTool: evalCase.expectedTool,
+    isMustPass: isMustPassCase(evalCase),
+    toolCalls: [],
+    finalAnswer: "",
+    layer1: agentErrorLayer1(message),
+    layer2: null,
+    judgeError: null,
+    agentError: message,
+    durationMs,
   };
 }
 
@@ -198,43 +229,84 @@ async function evaluateSeededControl(params: {
   };
 }
 
-async function runAgentLoop(params: {
-  readonly prompt: string;
+interface AgentRun {
+  readonly toolCalls: readonly RecordedToolCall[];
+  readonly finalAnswer: string;
+}
+
+interface AgentStep {
+  readonly textParts: readonly string[];
+  readonly recordedCalls: readonly RecordedToolCall[];
+  /** Null when the model answered without calling a tool, which ends the loop. */
+  readonly nextMessages: MessageParam[] | null;
+}
+
+interface AgentRoundParams {
   readonly mcpClient: Client;
   readonly tools: readonly Tool[];
   readonly llm: LlmClient;
   readonly agentModel: string;
-}): Promise<{ toolCalls: readonly RecordedToolCall[]; finalAnswer: string }> {
+}
+
+/** One model call and, if it asked for tools, the tool calls it made. */
+async function runAgentRound(
+  params: AgentRoundParams,
+  messages: MessageParam[],
+): Promise<AgentStep> {
+  const response = await params.llm.messages.create({
+    model: params.agentModel,
+    max_tokens: MAX_AGENT_TOKENS,
+    temperature: 0,
+    system: AGENT_SYSTEM_PROMPT,
+    tools: params.tools,
+    messages,
+  });
+  const textParts = extractTextBlocks(response.content);
+  const toolUses = extractToolUses(response.content);
+  if (toolUses.length === 0) return { textParts, recordedCalls: [], nextMessages: null };
+
+  const { toolResults, recordedCalls } = await executeToolUses(params.mcpClient, toolUses);
+  return {
+    textParts,
+    recordedCalls,
+    nextMessages: [
+      ...messages,
+      { role: "assistant", content: response.content as MessageParam["content"] },
+      { role: "user", content: toolResults },
+    ],
+  };
+}
+
+/** Runs one agent round, retrying it once; a second failure is rethrown to the case. */
+async function retryAgentRound<T>(attempt: () => Promise<T>): Promise<T> {
+  for (let attemptNumber = 1; ; attemptNumber++) {
+    try {
+      return await attempt();
+    } catch (error: unknown) {
+      if (attemptNumber >= AGENT_MAX_ATTEMPTS) throw error;
+      console.error(
+        `Agent round failed (attempt ${attemptNumber}), retrying: ${describeError(error)}`,
+      );
+    }
+  }
+}
+
+async function runAgentLoop(
+  params: { readonly prompt: string } & AgentRoundParams,
+): Promise<AgentRun> {
   let messages: MessageParam[] = [{ role: "user", content: params.prompt }];
   let toolCalls: readonly RecordedToolCall[] = [];
   let finalAnswer = "";
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const response = await params.llm.messages.create({
-      model: params.agentModel,
-      max_tokens: MAX_AGENT_TOKENS,
-      temperature: 0,
-      system: AGENT_SYSTEM_PROMPT,
-      tools: params.tools,
-      messages,
-    });
-
-    const textParts = extractTextBlocks(response.content);
-    const toolUses = extractToolUses(response.content);
-
-    if (toolUses.length === 0) {
-      finalAnswer = textParts.join("\n").trim();
+    const step = await retryAgentRound(() => runAgentRound(params, messages));
+    toolCalls = [...toolCalls, ...step.recordedCalls];
+    if (step.nextMessages === null) {
+      finalAnswer = step.textParts.join("\n").trim();
       break;
     }
-
-    const { toolResults, recordedCalls } = await executeToolUses(params.mcpClient, toolUses);
-    toolCalls = [...toolCalls, ...recordedCalls];
-    messages = [
-      ...messages,
-      { role: "assistant", content: response.content as MessageParam["content"] },
-      { role: "user", content: toolResults },
-    ];
-    if (textParts.length > 0) finalAnswer = textParts.join("\n").trim();
+    if (step.textParts.length > 0) finalAnswer = step.textParts.join("\n").trim();
+    messages = step.nextMessages;
   }
   return { toolCalls, finalAnswer };
 }

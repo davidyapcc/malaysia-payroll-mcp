@@ -94,6 +94,8 @@ export interface CaseEvaluation {
   /** Null when the judge could not score the answer after its retry (see `judgeError`). */
   readonly layer2: RubricScore | null;
   readonly judgeError: string | null;
+  /** Set when the agent failed twice in a round. Such a case is not graded or judged. */
+  readonly agentError: string | null;
   readonly durationMs: number;
 }
 
@@ -286,24 +288,24 @@ function amountOf(value: unknown, party: AmountParty | null): HeadlineAmount[] {
   return typeof value === "number" ? [{ amount: value, party }] : [];
 }
 
+const NET_PAY_EMPLOYEE_KEYS = ["epf", "socso", "skbbk", "eis", "mtd"] as const;
+const NET_PAY_EMPLOYER_KEYS = ["epf", "socso", "eis"] as const;
+
+/** Employee deductions and employer contributions name their party; totals and cost do not. */
 function netPayAmounts(expected: Record<string, unknown>): HeadlineAmount[] {
   const ded = expected.deductions;
   const er = expected.employerContributions;
-  const values: unknown[] = [
+  const employee = NET_PAY_EMPLOYEE_KEYS.flatMap((key) =>
+    amountOf(pickField(ded, key), "employee"),
+  );
+  const employer = NET_PAY_EMPLOYER_KEYS.flatMap((key) => amountOf(pickField(er, key), "employer"));
+  const unlabelled: unknown[] = [
     expected.netPay,
-    pickField(ded, "epf"),
-    pickField(ded, "socso"),
-    pickField(ded, "skbbk"),
-    pickField(ded, "eis"),
-    pickField(ded, "mtd"),
     pickField(ded, "total"),
-    pickField(er, "epf"),
-    pickField(er, "socso"),
-    pickField(er, "eis"),
     pickField(er, "total"),
     expected.employerCost,
   ];
-  return values.flatMap((value) => amountOf(value, null));
+  return [...employee, ...employer, ...unlabelled.flatMap((value) => amountOf(value, null))];
 }
 
 /**
@@ -378,9 +380,15 @@ interface PartyMention extends Span {
   readonly party: AmountParty;
 }
 
+interface ScopeMentions {
+  readonly amounts: readonly AmountMention[];
+  readonly parties: readonly PartyMention[];
+}
+
 interface AttributedAmount {
   readonly value: number;
-  readonly party: AmountParty | null;
+  /** Parties the amount is attributed to. Empty when the prose names no party for it. */
+  readonly parties: readonly AmountParty[];
 }
 
 function amountValueOf(token: string): number {
@@ -391,10 +399,10 @@ function spanOf(match: RegExpExecArray): Span {
   return { index: match.index, end: match.index + match[0].length };
 }
 
-function amountMentionsOf(sentence: string): AmountMention[] {
-  const prefixed = [...sentence.matchAll(RM_PREFIXED_RE)];
+function amountMentionsOf(scope: string): AmountMention[] {
+  const prefixed = [...scope.matchAll(RM_PREFIXED_RE)];
   // A bare 2-decimal amount inside an RM-prefixed match is the same figure, so it is not counted twice.
-  const bare = [...sentence.matchAll(DECIMAL_MONEY_RE)].filter((match) => {
+  const bare = [...scope.matchAll(DECIMAL_MONEY_RE)].filter((match) => {
     const { index } = spanOf(match);
     return !prefixed.some((p) => index >= spanOf(p).index && index < spanOf(p).end);
   });
@@ -405,14 +413,14 @@ function amountMentionsOf(sentence: string): AmountMention[] {
       ...spanOf(match),
     }),
   );
-  const zeros = [...sentence.matchAll(ZERO_WORD_GLOBAL_RE)].map(
+  const zeros = [...scope.matchAll(ZERO_WORD_GLOBAL_RE)].map(
     (match): AmountMention => ({ kind: "amount", value: 0, ...spanOf(match) }),
   );
   return [...numeric, ...zeros];
 }
 
-function partyMentionsOf(sentence: string): PartyMention[] {
-  return [...sentence.matchAll(PARTY_WORD_RE)].map(
+function partyMentionsOf(scope: string): PartyMention[] {
+  return [...scope.matchAll(PARTY_WORD_RE)].map(
     (match): PartyMention => ({
       kind: "party",
       party: match[1]?.toLowerCase() === "employer" ? "employer" : "employee",
@@ -426,24 +434,49 @@ function gapBetween(a: Span, b: Span): number {
   return a.index >= b.end ? a.index - b.end : Math.max(0, b.index - a.end);
 }
 
-/** The party of the party word closest to this amount in the same scope, ties going to the earlier word. */
-function nearestParty(amount: AmountMention, parties: readonly PartyMention[]): AmountParty | null {
-  const [nearest] = [...parties].sort((a, b) => gapBetween(amount, a) - gapBetween(amount, b));
-  return nearest?.party ?? null;
+/** The party of the party word nearest this amount in its scope; the earlier word wins a tie. */
+function nearestParty(amount: AmountMention, parties: readonly PartyMention[]): AmountParty {
+  return parties.reduce((best, party) =>
+    gapBetween(amount, party) < gapBetween(amount, best) ? party : best,
+  ).party;
 }
 
 /**
- * Attributes each RM amount to the party word nearest to it in the same scope, so
- * "employer RM330 and employee RM390" attributes RM330 to the employer and fails a swapped answer.
+ * Parties for one amount. A scope that names no party inherits the last party named before it,
+ * which covers an answer that lists figures under an "Employee Deductions" heading. A scope with
+ * one amount that names both parties means both pay it. Otherwise the nearest party word wins, so
+ * "employer RM330 and employee RM390" attributes RM330 to the employer.
  */
+function partiesFor(
+  scope: ScopeMentions,
+  amount: AmountMention,
+  lastParty: AmountParty | null,
+): readonly AmountParty[] {
+  if (scope.parties.length === 0) return lastParty === null ? [] : [lastParty];
+  const namedParties = new Set(scope.parties.map((party) => party.party));
+  if (scope.amounts.length === 1 && namedParties.size === 2) return ["employee", "employer"];
+  return [nearestParty(amount, scope.parties)];
+}
+
+/** Attributes each RM amount in the prose to one or more parties, carrying the last party forward. */
 function attributeAmounts(prose: string): AttributedAmount[] {
-  return prose.split(SENTENCE_BREAK_RE).flatMap((sentence) => {
-    const parties = partyMentionsOf(sentence);
-    return amountMentionsOf(sentence).map((amount) => ({
-      value: amount.value,
-      party: nearestParty(amount, parties),
-    }));
-  });
+  const scopes: ScopeMentions[] = prose.split(SENTENCE_BREAK_RE).map((scope) => ({
+    amounts: amountMentionsOf(scope),
+    parties: partyMentionsOf(scope),
+  }));
+  return scopes.reduce<{ lastParty: AmountParty | null; attributed: AttributedAmount[] }>(
+    (state, scope) => ({
+      lastParty: scope.parties.at(-1)?.party ?? state.lastParty,
+      attributed: [
+        ...state.attributed,
+        ...scope.amounts.map((amount) => ({
+          value: amount.value,
+          parties: partiesFor(scope, amount, state.lastParty),
+        })),
+      ],
+    }),
+    { lastParty: null, attributed: [] },
+  ).attributed;
 }
 
 function isHeadlineAmountFound(
@@ -451,10 +484,11 @@ function isHeadlineAmountFound(
   finalAnswer: string,
   attributed: readonly AttributedAmount[],
 ): boolean {
-  if (headline.party === null) return containsRmAmount(finalAnswer, headline.amount);
+  const party = headline.party;
+  if (party === null) return containsRmAmount(finalAnswer, headline.amount);
   return attributed.some(
     (entry) =>
-      entry.party === headline.party && Math.abs(entry.value - headline.amount) < AMOUNT_TOLERANCE,
+      entry.parties.includes(party) && Math.abs(entry.value - headline.amount) < AMOUNT_TOLERANCE,
   );
 }
 
@@ -462,6 +496,19 @@ const REFUSAL_EXPLANATION_RE =
   /(?:cannot|can't|not\s+(?:allowed|permitted|eligible|possible)|unable|prohibited)\b[^.\n]*\bopt[\s-]*out|opt[\s-]*out\b[^.\n]*\b(?:not\s+(?:allowed|permitted|eligible|possible)|prohibited)|\bmandatory\b/i;
 const AFFIRMATIVE_OPT_OUT_RE =
   /(?<!\bnot\s+)\b(?:can|may|allowed\s+to|permitted\s+to|eligible\s+to)\s+opt[\s-]*out\b/i;
+
+/** Layer 1 result for a case whose agent failed: not passed, with the agent error as the only reason. */
+export function agentErrorLayer1(message: string): Layer1Result {
+  return {
+    isPassed: false,
+    hasExpectedTool: false,
+    hasMatchingArgs: false,
+    hasMatchingToolOutput: false,
+    hasValidProse: false,
+    missingAmounts: [],
+    failureReasons: [`Agent error: ${message}`],
+  };
+}
 
 /** Refusal cases (`expectedError` set) are must-pass: they fail the gate on their own if Layer 1 fails. */
 export function isMustPassCase(evalCase: EvalCase): boolean {

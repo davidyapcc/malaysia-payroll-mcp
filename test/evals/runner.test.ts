@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadSeededControls, type SeededControl } from "../../evals/controls.js";
 import type { EvalCase } from "../../evals/grading.js";
-import type {
-  LlmClient,
-  MessagesCreateParams,
-  MessagesResponseLike,
+import {
+  createOpenAiClient,
+  type LlmClient,
+  type MessagesCreateParams,
+  type MessagesResponseLike,
 } from "../../evals/providers.js";
 import { runCli } from "../../evals/run.js";
 import { loadEvalCases, runEvalSuite, writeScorecardFiles } from "../../evals/runner.js";
@@ -405,5 +406,147 @@ function createScriptedOpenAiFetch(
       }),
       { status: 200 },
     );
+  };
+}
+
+/** Fails every agent request for `prompt` with `reason`, passing judge and other agent requests through. */
+function agentFailingFor(
+  base: LlmClient,
+  prompt: string,
+  reason: string,
+  onAgentCall: () => void,
+): LlmClient {
+  return {
+    messages: {
+      create(params: MessagesCreateParams): Promise<MessagesResponseLike> {
+        const isAgentForPrompt = !isJudgeRequest(params) && params.messages[0]?.content === prompt;
+        if (isAgentForPrompt) {
+          onAgentCall();
+          return Promise.reject(new Error(reason));
+        }
+        return base.messages.create(params);
+      },
+    },
+  };
+}
+
+describe("agent-round errors", () => {
+  it("retries an agent round once and scores the case when the retry succeeds", async () => {
+    const evalCase = firstCase();
+    const base = createFakeLlm({ evalCases: [evalCase], judgeReply: () => cleanVerdictJson() });
+    let agentCalls = 0;
+    const llm = agentFailingForOnce(base, evalCase.prompt, () => {
+      agentCalls++;
+    });
+
+    const scorecard = await runEvalSuite({ evalCases: [evalCase], llm, controls: [] });
+
+    expect(agentCalls).toBe(1);
+    expect(scorecard.cases[0]?.agentError).toBeNull();
+    expect(scorecard.cases[0]?.layer2).not.toBeNull();
+    expect(scorecard.agentErrors).toBe(0);
+  });
+
+  it("records an agent error after a failed retry, skips the judge, and still returns a scorecard", async () => {
+    const evalCase = firstCase();
+    const base = createFakeLlm({ evalCases: [evalCase], judgeReply: () => cleanVerdictJson() });
+    const judged: string[] = [];
+    const judgeSpy: LlmClient = {
+      messages: {
+        create(params: MessagesCreateParams): Promise<MessagesResponseLike> {
+          if (isJudgeRequest(params)) judged.push(judgeCaseId(String(params.messages[0]?.content)));
+          return base.messages.create(params);
+        },
+      },
+    };
+    let agentCalls = 0;
+    const llm = agentFailingFor(judgeSpy, evalCase.prompt, "HTTP 503 from upstream", () => {
+      agentCalls++;
+    });
+
+    const scorecard = await runEvalSuite({ evalCases: [evalCase], llm, controls: [] });
+
+    expect(agentCalls).toBe(2);
+    expect(scorecard.cases[0]?.agentError).toBe("HTTP 503 from upstream");
+    expect(scorecard.cases[0]?.layer1.isPassed).toBe(false);
+    expect(scorecard.cases[0]?.layer2).toBeNull();
+    expect(scorecard.cases[0]?.judgeError).toBeNull();
+    expect(judged).not.toContain(evalCase.id);
+    expect(scorecard.agentErrors).toBe(1);
+    expect(scorecard.judgeErrors).toBe(0);
+    expect(scorecard.isGatePassed).toBe(false);
+    expect(scorecard.gateFailures).toContainEqual(expect.stringContaining("Agent errors: 1"));
+  });
+
+  it("reports a must-pass refusal case that hit an agent error once, under agent errors", async () => {
+    const evalCases = loadEvalCases();
+    const soc05 = evalCases.find((c) => c.id === "SOC-05");
+    if (soc05 === undefined) throw new Error("Missing SOC-05.");
+    const base = createFakeLlm({ evalCases, judgeReply: catchingJudgeReply(loadSeededControls()) });
+    const llm = agentFailingFor(base, soc05.prompt, "network reset", () => undefined);
+
+    const scorecard = await runEvalSuite({ evalCases, llm });
+
+    expect(scorecard.mustPassSummary.passed).toBe(0);
+    expect(scorecard.mustPassSummary.failedIds).toEqual([]);
+    expect(scorecard.mustPassSummary.isCausingFailure).toBe(false);
+    expect(scorecard.gateFailures.some((f) => f.startsWith("Must-pass"))).toBe(false);
+    expect(scorecard.gateFailures).toContainEqual(expect.stringContaining("Agent errors: 1"));
+  });
+
+  it("does not reject when the provider returns malformed tool arguments", async () => {
+    const evalCase = firstCase();
+    const llm = createOpenAiClient("sk-test", async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as {
+        messages: { role: string; content?: unknown }[];
+      };
+      const first = String(body.messages.find((m) => m.role === "user")?.content);
+      if (first.startsWith("Case ID:")) {
+        return new Response(
+          JSON.stringify({
+            choices: [{ finish_reason: "stop", message: { content: cleanVerdictJson() } }],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "tool_calls",
+              message: {
+                tool_calls: [
+                  { id: "c1", function: { name: evalCase.expectedTool, arguments: "{not-json" } },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+
+    const scorecard = await runEvalSuite({ evalCases: [evalCase], llm, controls: [] });
+
+    expect(scorecard.agentErrors).toBe(1);
+    expect(scorecard.cases[0]?.agentError).toContain("JSON");
+  });
+});
+
+/** Fails the first agent request for `prompt` and passes everything after, so a retry can succeed. */
+function agentFailingForOnce(base: LlmClient, prompt: string, onAgentCall: () => void): LlmClient {
+  let failed = false;
+  return {
+    messages: {
+      create(params: MessagesCreateParams): Promise<MessagesResponseLike> {
+        const isAgentForPrompt = !isJudgeRequest(params) && params.messages[0]?.content === prompt;
+        if (isAgentForPrompt && !failed) {
+          failed = true;
+          onAgentCall();
+          return Promise.reject(new Error("transient 502"));
+        }
+        return base.messages.create(params);
+      },
+    },
   };
 }

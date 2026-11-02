@@ -15,6 +15,8 @@ const GATE_MEAN_DECIMALS = 2;
 export const LAYER1_ALLOWED_MISSES = 2;
 /** Judge errors that fail the gate. Any error is a failure, so this stays at zero. */
 export const MAX_JUDGE_ERRORS = 0;
+/** Agent errors that fail the gate. Any error is a failure, so this stays at zero. */
+export const MAX_AGENT_ERRORS = 0;
 
 export interface GateThresholds {
   readonly maxLayer1Misses: number;
@@ -73,6 +75,7 @@ export interface Scorecard {
   readonly mustPassSummary: MustPassSummary;
   readonly layer2Summary: Layer2Summary;
   readonly judgeErrors: number;
+  readonly agentErrors: number;
   readonly controlSummary: ControlSummary;
   readonly cases: readonly CaseEvaluation[];
   readonly controls: readonly ControlEvaluation[];
@@ -118,10 +121,13 @@ function summarizeLayer1(
   };
 }
 
+/** Agent errors are counted only under agentErrors, so a must-pass case is never reported twice. */
 function summarizeMustPass(cases: readonly CaseEvaluation[]): MustPassSummary {
-  const failedIds = cases.filter((c) => !c.layer1.isPassed).map((c) => c.id);
+  const failedIds = cases
+    .filter((c) => !c.layer1.isPassed && c.agentError === null)
+    .map((c) => c.id);
   return {
-    passed: cases.length - failedIds.length,
+    passed: countWhere(cases, (c) => c.layer1.isPassed),
     total: cases.length,
     failedIds,
     isCausingFailure: failedIds.length > 0,
@@ -199,6 +205,13 @@ function controlFailures(summary: ControlSummary): string[] {
   ];
 }
 
+function agentErrorFailures(agentErrors: number): string[] {
+  if (agentErrors <= MAX_AGENT_ERRORS) return [];
+  return [
+    `Agent errors: ${agentErrors} case(s) failed after one retry, so they were not graded. Any agent error fails the gate.`,
+  ];
+}
+
 function judgeErrorFailures(judgeErrors: number): string[] {
   if (judgeErrors <= MAX_JUDGE_ERRORS) return [];
   return [
@@ -216,12 +229,14 @@ export function buildScorecard(params: ScorecardInput): Scorecard {
   const layer2Summary = summarizeLayer2(params.cases);
   const controlSummary = summarizeControls(params.controls);
   const judgeErrors = countJudgeErrors(params.cases, params.controls);
+  const agentErrors = countWhere(params.cases, (c) => c.agentError !== null);
   const gateFailures = [
     ...mustPassFailures(mustPassSummary),
     ...layer1Failures(layer1Summary, thresholds),
     ...layer2Failures(layer2Summary, thresholds),
     ...controlFailures(controlSummary),
     ...judgeErrorFailures(judgeErrors),
+    ...agentErrorFailures(agentErrors),
   ];
 
   return {
@@ -236,6 +251,7 @@ export function buildScorecard(params: ScorecardInput): Scorecard {
     mustPassSummary,
     layer2Summary,
     judgeErrors,
+    agentErrors,
     controlSummary,
     cases: params.cases,
     controls: params.controls,
@@ -299,6 +315,7 @@ function renderLayer2(scorecard: Scorecard): string[] {
     `| Hallucinated citations | ${l2.hallucinatedCitations} |`,
     `| Cases scored by the judge | ${l2.scoredCases} of ${scorecard.totalCases} |`,
     `| Judge errors (after one retry) | ${scorecard.judgeErrors} |`,
+    `| Agent errors (after one retry) | ${scorecard.agentErrors} |`,
     "",
   ];
 }
@@ -328,11 +345,16 @@ function renderScoreCells(scores: RubricScore | null): string {
   return `${scores.citationFaithfulness} | ${scores.completeness} | ${scores.clarity} | ${hallucinated}`;
 }
 
+/** The judge note, or nothing for an agent error, whose reason is already in the Layer 1 reasons. */
+function caseDetail(c: CaseEvaluation): string[] {
+  if (c.agentError !== null) return [];
+  return [c.layer2 === null ? `Judge error: ${String(c.judgeError)}` : c.layer2.rationale];
+}
+
 function renderCaseRow(c: CaseEvaluation): string {
   const mustPassMark = c.isMustPass ? " (must-pass)" : "";
   const l1Badge = `${c.layer1.isPassed ? "PASS" : "FAIL"}${mustPassMark}`;
-  const detail = c.layer2 === null ? `Judge error: ${String(c.judgeError)}` : c.layer2.rationale;
-  const note = [...c.layer1.failureReasons, detail].join(" | ");
+  const note = [...c.layer1.failureReasons, ...caseDetail(c)].join(" | ");
   const escapedNote = note.replaceAll("|", "\\|").replaceAll("\n", " ");
   return `| ${c.id} | \`${c.expectedTool}\` | ${l1Badge} | ${renderScoreCells(c.layer2)} | ${escapedNote} |`;
 }
@@ -349,7 +371,7 @@ export function renderScorecardMarkdown(scorecard: Scorecard): string {
     `- **Agent model**: \`${scorecard.agentModel}\``,
     `- **Judge model**: \`${scorecard.judgeModel}\``,
     `- **Total cases**: ${scorecard.totalCases} (${l1.total} standard, ${scorecard.mustPassSummary.total} must-pass refusal)`,
-    `- **CI Gate**: **${status}** (thresholds: Layer 1 >= ${l1.minPassed}/${l1.total} standard cases, every must-pass refusal case passes, Layer 2 mean >= ${scorecard.thresholds.minMeanRubricScore.toFixed(GATE_MEAN_DECIMALS)}/${maxScore}, hallucinated citations <= ${scorecard.thresholds.maxHallucinatedCitations}, judge errors = ${MAX_JUDGE_ERRORS}, every seeded control caught)`,
+    `- **CI Gate**: **${status}** (thresholds: Layer 1 >= ${l1.minPassed}/${l1.total} standard cases, every must-pass refusal case passes, Layer 2 mean >= ${scorecard.thresholds.minMeanRubricScore.toFixed(GATE_MEAN_DECIMALS)}/${maxScore}, hallucinated citations <= ${scorecard.thresholds.maxHallucinatedCitations}, judge errors = ${MAX_JUDGE_ERRORS}, agent errors = ${MAX_AGENT_ERRORS}, every seeded control caught)`,
     "",
     ...renderGateFailures(scorecard),
     ...renderMustPass(scorecard.mustPassSummary),

@@ -161,6 +161,7 @@ export function makeCaseEvaluation(
     layer1: PASSING_LAYER1,
     layer2: CLEAN_RUBRIC,
     judgeError: null,
+    agentError: null,
     durationMs: 1,
     ...overrides,
   };

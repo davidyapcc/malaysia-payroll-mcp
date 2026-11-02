@@ -250,6 +250,25 @@ describe("renderScorecardMarkdown", () => {
     expect(md).toContain("| EPF-09 | `calculate_epf` | PASS | 2 | 3 | 3 | YES | Invented. |");
   });
 
+  it("renders an agent-error case without scores and reports the agent error count", () => {
+    const md = renderScorecardMarkdown(
+      scorecardFor([
+        makeCaseEvaluation({
+          id: "SOC-05",
+          isMustPass: true,
+          expectedTool: "calculate_socso_eis",
+          layer1: makeLayer1({ isPassed: false, failureReasons: ["Agent error: HTTP 503"] }),
+          layer2: null,
+          agentError: "HTTP 503",
+        }),
+      ]),
+    );
+    expect(md).toContain(
+      "| SOC-05 | `calculate_socso_eis` | FAIL (must-pass) | n/a | n/a | n/a | n/a | Agent error: HTTP 503 |",
+    );
+    expect(md).toContain("| Agent errors (after one retry) | 1 |");
+  });
+
   it("renders no gate-failure section when the gate passes", () => {
     const md = renderScorecardMarkdown(scorecardFor(standardCases(STANDARD_TOTAL)));
     expect(md).toContain("(PASS)");
