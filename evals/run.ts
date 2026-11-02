@@ -2,12 +2,15 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type EvalCase, type GateThresholds, renderScorecardMarkdown } from "./grading.ts";
+import type { SeededControl } from "./controls.ts";
+import type { EvalCase } from "./grading.ts";
 import { resolveProvider } from "./providers.ts";
 import { loadEvalCases, parseConcurrency, runEvalSuite, writeScorecardFiles } from "./runner.ts";
+import { type GateThresholds, renderScorecardMarkdown } from "./scorecard.ts";
 
 export interface RunCliOptions {
   readonly evalCases?: readonly EvalCase[];
+  readonly controls?: readonly SeededControl[];
   readonly fetchFn?: typeof fetch;
   readonly serverModuleSpecifier?: string;
   readonly outDir?: string;
@@ -24,6 +27,7 @@ export async function runCli(
     : "../src/mcp/server.js";
   const scorecard = await runEvalSuite({
     evalCases: options.evalCases ?? loadEvalCases(),
+    ...(options.controls !== undefined ? { controls: options.controls } : {}),
     llm: provider.client,
     agentModel: provider.agentModel,
     judgeModel: provider.judgeModel,

@@ -1,0 +1,86 @@
+[
+  {
+    "id": "CTRL-INVENTED-CITATION",
+    "description": "Tool output is correct, but the answer cites a statute section the tool never returned.",
+    "prompt": "Calculate the monthly EPF contributions (employee, employer and total) for a 30-year-old Malaysian earning RM 3,000 in November 2026.",
+    "toolCalls": [
+      {
+        "name": "calculate_epf",
+        "arguments": {
+          "monthlySalary": 3000,
+          "age": 30,
+          "citizenship": "malaysian",
+          "payPeriod": "2026-11"
+        },
+        "isError": false,
+        "textContent": "EPF contributions for RM3,000.00: employee RM330.00, employer RM390.00, total RM720.00.",
+        "structuredContent": { "part": "A", "employer": 390, "employee": 330, "total": 720 }
+      }
+    ],
+    "finalAnswer": "The employee pays RM330.00 and the employer pays RM390.00, a total of RM720.00. This follows Section 47(3) of the Employees Provident Fund Act 1991, which fixes the employer rate at 13% for salaries under RM5,000. Not tax or legal advice; fixed monthly salaries only.",
+    "expectation": { "kind": "hallucination" }
+  },
+  {
+    "id": "CTRL-NO-DISCLAIMER",
+    "description": "Every figure matches the tool output, but the mandatory fixed-salary and non-advice disclaimer is missing.",
+    "prompt": "Calculate the monthly EPF contributions (employee, employer and total) for a 30-year-old Malaysian earning RM 3,000 in November 2026.",
+    "toolCalls": [
+      {
+        "name": "calculate_epf",
+        "arguments": {
+          "monthlySalary": 3000,
+          "age": 30,
+          "citizenship": "malaysian",
+          "payPeriod": "2026-11"
+        },
+        "isError": false,
+        "textContent": "EPF contributions for RM3,000.00: employee RM330.00, employer RM390.00, total RM720.00.",
+        "structuredContent": { "part": "A", "employer": 390, "employee": 330, "total": 720 }
+      }
+    ],
+    "finalAnswer": "Employee: RM330.00. Employer: RM390.00. Total: RM720.00. These are the EPF contributions for November 2026 on a RM3,000.00 salary, per the KWSP contribution table.",
+    "expectation": { "kind": "dimension", "dimension": "completeness" }
+  },
+  {
+    "id": "CTRL-SWAPPED-PAYER",
+    "description": "The employer and employee shares are swapped, which contradicts the tool output.",
+    "prompt": "Calculate the monthly EPF contributions (employee, employer and total) for a 30-year-old Malaysian earning RM 3,000 in November 2026.",
+    "toolCalls": [
+      {
+        "name": "calculate_epf",
+        "arguments": {
+          "monthlySalary": 3000,
+          "age": 30,
+          "citizenship": "malaysian",
+          "payPeriod": "2026-11"
+        },
+        "isError": false,
+        "textContent": "EPF contributions for RM3,000.00: employee RM330.00, employer RM390.00, total RM720.00.",
+        "structuredContent": { "part": "A", "employer": 390, "employee": 330, "total": 720 }
+      }
+    ],
+    "finalAnswer": "The employer pays RM330.00 and the employee pays RM390.00, a total of RM720.00. Not tax or legal advice; fixed monthly salaries only.",
+    "expectation": { "kind": "dimension", "dimension": "citationFaithfulness" }
+  },
+  {
+    "id": "CTRL-WRONG-AMOUNT",
+    "description": "The employee and employer shares match, but the stated total is wrong.",
+    "prompt": "Calculate the monthly EPF contributions (employee, employer and total) for a 30-year-old Malaysian earning RM 3,000 in November 2026.",
+    "toolCalls": [
+      {
+        "name": "calculate_epf",
+        "arguments": {
+          "monthlySalary": 3000,
+          "age": 30,
+          "citizenship": "malaysian",
+          "payPeriod": "2026-11"
+        },
+        "isError": false,
+        "textContent": "EPF contributions for RM3,000.00: employee RM330.00, employer RM390.00, total RM720.00.",
+        "structuredContent": { "part": "A", "employer": 390, "employee": 330, "total": 720 }
+      }
+    ],
+    "finalAnswer": "The employee pays RM330.00 and the employer pays RM390.00, a total of RM750.00. Not tax or legal advice; fixed monthly salaries only.",
+    "expectation": { "kind": "dimension", "dimension": "citationFaithfulness" }
+  }
+]

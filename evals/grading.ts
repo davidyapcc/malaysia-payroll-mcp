@@ -12,8 +12,6 @@ export const MAX_RUBRIC_SCORE = 5;
 export const FAITHFUL_CITATION_FLOOR = 3;
 
 const AMOUNT_TOLERANCE = 1e-6;
-const PERCENT_SCALE = 100;
-const RUBRIC_DIMENSION_COUNT = 3;
 const EIS_AGE_MIN = 57;
 const EIS_AGE_MAX = 59;
 
@@ -72,7 +70,7 @@ export interface Layer1Result {
   readonly hasExpectedTool: boolean;
   readonly hasMatchingArgs: boolean;
   readonly hasMatchingToolOutput: boolean;
-  readonly hasExpectedProseAmounts: boolean;
+  readonly hasValidProse: boolean;
   readonly missingAmounts: readonly number[];
   readonly failureReasons: readonly string[];
 }
@@ -89,50 +87,14 @@ export interface CaseEvaluation {
   readonly id: string;
   readonly prompt: string;
   readonly expectedTool: ToolName;
+  readonly isMustPass: boolean;
   readonly toolCalls: readonly RecordedToolCall[];
   readonly finalAnswer: string;
   readonly layer1: Layer1Result;
-  readonly layer2: RubricScore;
+  /** Null when the judge could not score the answer after its retry (see `judgeError`). */
+  readonly layer2: RubricScore | null;
+  readonly judgeError: string | null;
   readonly durationMs: number;
-}
-
-export interface GateThresholds {
-  readonly minLayer1Passed: number;
-  readonly minMeanRubricScore: number;
-  readonly maxHallucinatedCitations: number;
-}
-
-export const DEFAULT_THRESHOLDS: GateThresholds = {
-  minLayer1Passed: 33,
-  minMeanRubricScore: 4.0,
-  maxHallucinatedCitations: 0,
-};
-
-export interface Scorecard {
-  readonly generatedAt: string;
-  readonly agentModel: string;
-  readonly judgeModel: string;
-  readonly totalCases: number;
-  readonly isGatePassed: boolean;
-  readonly gateFailures: readonly string[];
-  readonly thresholds: GateThresholds;
-  readonly layer1Summary: {
-    readonly passed: number;
-    readonly total: number;
-    readonly passRate: number;
-    readonly toolSelectionPassed: number;
-    readonly argsMatchedPassed: number;
-    readonly toolOutputMatchedPassed: number;
-    readonly proseAmountsPassed: number;
-  };
-  readonly layer2Summary: {
-    readonly meanCitationFaithfulness: number;
-    readonly meanCompleteness: number;
-    readonly meanClarity: number;
-    readonly overallMean: number;
-    readonly hallucinatedCitations: number;
-  };
-  readonly cases: readonly CaseEvaluation[];
 }
 
 /** Parses evals/cases.jsonl into validated prompt entries. */
@@ -312,37 +274,22 @@ export function matchesExpectedObject(actual: unknown, expected: Record<string, 
   return true;
 }
 
-function uniqueNumbers(values: readonly unknown[]): number[] {
-  const numbers = values.filter((v): v is number => typeof v === "number");
-  return Array.from(new Set(numbers));
+export type AmountParty = "employee" | "employer";
+
+export interface HeadlineAmount {
+  readonly amount: number;
+  /** Party the answer must name next to this amount, or null when the amount needs no party. */
+  readonly party: AmountParty | null;
 }
 
-/**
- * Extracts every headline statutory RM figure from a golden case's `expected` object that must
- * appear in the agent's final natural-language answer.
- */
-export function headlineNumbers(evalCase: EvalCase): number[] {
-  const expected = evalCase.expectedOutput;
-  if (expected === undefined) return [];
+function amountOf(value: unknown, party: AmountParty | null): HeadlineAmount[] {
+  return typeof value === "number" ? [{ amount: value, party }] : [];
+}
 
-  if (evalCase.expectedTool === "calculate_epf") {
-    return uniqueNumbers([expected.employer, expected.employee, expected.total]);
-  }
-  if (evalCase.expectedTool === "calculate_socso_eis") {
-    return uniqueNumbers([
-      pickField(expected.socso, "employer"),
-      pickField(expected.socso, "employee"),
-      pickField(expected.skbbk, "employee"),
-      pickField(expected.eis, "employer"),
-      pickField(expected.eis, "employee"),
-    ]);
-  }
-  if (evalCase.expectedTool === "calculate_mtd") {
-    return uniqueNumbers([expected.mtd]);
-  }
+function netPayAmounts(expected: Record<string, unknown>): HeadlineAmount[] {
   const ded = expected.deductions;
   const er = expected.employerContributions;
-  return uniqueNumbers([
+  const values: unknown[] = [
     expected.netPay,
     pickField(ded, "epf"),
     pickField(ded, "socso"),
@@ -355,7 +302,37 @@ export function headlineNumbers(evalCase: EvalCase): number[] {
     pickField(er, "eis"),
     pickField(er, "total"),
     expected.employerCost,
-  ]);
+  ];
+  return values.flatMap((value) => amountOf(value, null));
+}
+
+/**
+ * Extracts every headline statutory RM figure from a golden case's `expected` object that must
+ * appear in the agent's final answer. The EPF and SOCSO/EIS shares must name their paying party,
+ * because swapping employer and employee shares is a wrong answer.
+ */
+export function headlineAmounts(evalCase: EvalCase): HeadlineAmount[] {
+  const expected = evalCase.expectedOutput;
+  if (expected === undefined) return [];
+
+  if (evalCase.expectedTool === "calculate_epf") {
+    return [
+      ...amountOf(expected.employer, "employer"),
+      ...amountOf(expected.employee, "employee"),
+      ...amountOf(expected.total, null),
+    ];
+  }
+  if (evalCase.expectedTool === "calculate_socso_eis") {
+    return [
+      ...amountOf(pickField(expected.socso, "employer"), "employer"),
+      ...amountOf(pickField(expected.socso, "employee"), "employee"),
+      ...amountOf(pickField(expected.skbbk, "employee"), null),
+      ...amountOf(pickField(expected.eis, "employer"), "employer"),
+      ...amountOf(pickField(expected.eis, "employee"), "employee"),
+    ];
+  }
+  if (evalCase.expectedTool === "calculate_mtd") return amountOf(expected.mtd, null);
+  return netPayAmounts(expected);
 }
 
 const RM_PREFIXED_RE = /(?:RM|MYR)\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?![\d%]|\.\d)/gi;
@@ -378,10 +355,132 @@ export function containsRmAmount(prose: string, amount: number): boolean {
   return amount === 0 && ZERO_WORD_RE.test(prose);
 }
 
+const PARTY_WORD_RE = /\b(employee|employer)s?\b/gi;
+const ZERO_WORD_GLOBAL_RE = /(?<!\bnot\s+)\b(?:nil|exempt(?:ed)?|zero)\b/gi;
+/**
+ * Newlines, semicolons, clause commas and sentence ends split the prose into attribution scopes.
+ * A comma inside a number (`RM 3,000`) is followed by a digit, so it does not split.
+ */
+const SENTENCE_BREAK_RE = /[\n;]|,\s+(?=\D)|\.\s+(?=[A-Z])/;
+
+interface Span {
+  readonly index: number;
+  readonly end: number;
+}
+
+interface AmountMention extends Span {
+  readonly kind: "amount";
+  readonly value: number;
+}
+
+interface PartyMention extends Span {
+  readonly kind: "party";
+  readonly party: AmountParty;
+}
+
+interface AttributedAmount {
+  readonly value: number;
+  readonly party: AmountParty | null;
+}
+
+function amountValueOf(token: string): number {
+  return Number(token.replace(/^(?:RM|MYR)\s*/i, "").replaceAll(",", ""));
+}
+
+function spanOf(match: RegExpExecArray): Span {
+  return { index: match.index, end: match.index + match[0].length };
+}
+
+function amountMentionsOf(sentence: string): AmountMention[] {
+  const prefixed = [...sentence.matchAll(RM_PREFIXED_RE)];
+  // A bare 2-decimal amount inside an RM-prefixed match is the same figure, so it is not counted twice.
+  const bare = [...sentence.matchAll(DECIMAL_MONEY_RE)].filter((match) => {
+    const { index } = spanOf(match);
+    return !prefixed.some((p) => index >= spanOf(p).index && index < spanOf(p).end);
+  });
+  const numeric = [...prefixed, ...bare].map(
+    (match): AmountMention => ({
+      kind: "amount",
+      value: amountValueOf(match[0]),
+      ...spanOf(match),
+    }),
+  );
+  const zeros = [...sentence.matchAll(ZERO_WORD_GLOBAL_RE)].map(
+    (match): AmountMention => ({ kind: "amount", value: 0, ...spanOf(match) }),
+  );
+  return [...numeric, ...zeros];
+}
+
+function partyMentionsOf(sentence: string): PartyMention[] {
+  return [...sentence.matchAll(PARTY_WORD_RE)].map(
+    (match): PartyMention => ({
+      kind: "party",
+      party: match[1]?.toLowerCase() === "employer" ? "employer" : "employee",
+      ...spanOf(match),
+    }),
+  );
+}
+
+/** Characters between two spans, or 0 when they touch. */
+function gapBetween(a: Span, b: Span): number {
+  return a.index >= b.end ? a.index - b.end : Math.max(0, b.index - a.end);
+}
+
+/** The party of the party word closest to this amount in the same scope, ties going to the earlier word. */
+function nearestParty(amount: AmountMention, parties: readonly PartyMention[]): AmountParty | null {
+  const [nearest] = [...parties].sort((a, b) => gapBetween(amount, a) - gapBetween(amount, b));
+  return nearest?.party ?? null;
+}
+
+/**
+ * Attributes each RM amount to the party word nearest to it in the same scope, so
+ * "employer RM330 and employee RM390" attributes RM330 to the employer and fails a swapped answer.
+ */
+function attributeAmounts(prose: string): AttributedAmount[] {
+  return prose.split(SENTENCE_BREAK_RE).flatMap((sentence) => {
+    const parties = partyMentionsOf(sentence);
+    return amountMentionsOf(sentence).map((amount) => ({
+      value: amount.value,
+      party: nearestParty(amount, parties),
+    }));
+  });
+}
+
+function isHeadlineAmountFound(
+  headline: HeadlineAmount,
+  finalAnswer: string,
+  attributed: readonly AttributedAmount[],
+): boolean {
+  if (headline.party === null) return containsRmAmount(finalAnswer, headline.amount);
+  return attributed.some(
+    (entry) =>
+      entry.party === headline.party && Math.abs(entry.value - headline.amount) < AMOUNT_TOLERANCE,
+  );
+}
+
 const REFUSAL_EXPLANATION_RE =
   /(?:cannot|can't|not\s+(?:allowed|permitted|eligible|possible)|unable|prohibited)\b[^.\n]*\bopt[\s-]*out|opt[\s-]*out\b[^.\n]*\b(?:not\s+(?:allowed|permitted|eligible|possible)|prohibited)|\bmandatory\b/i;
 const AFFIRMATIVE_OPT_OUT_RE =
   /(?<!\bnot\s+)\b(?:can|may|allowed\s+to|permitted\s+to|eligible\s+to)\s+opt[\s-]*out\b/i;
+
+/** Refusal cases (`expectedError` set) are must-pass: they fail the gate on their own if Layer 1 fails. */
+export function isMustPassCase(evalCase: EvalCase): boolean {
+  return evalCase.expectedError !== undefined;
+}
+
+/**
+ * Finds the call Layer 1 inspects. Refusal cases inspect the first call, so retries after the
+ * expected refusal are allowed. Other cases inspect the call to the expected tool.
+ */
+function findInspectedCall(
+  evalCase: EvalCase,
+  toolCalls: readonly RecordedToolCall[],
+): RecordedToolCall | undefined {
+  const candidate = isMustPassCase(evalCase)
+    ? toolCalls[0]
+    : toolCalls.find((call) => call.name === evalCase.expectedTool);
+  return candidate?.name === evalCase.expectedTool ? candidate : undefined;
+}
 
 /** Evaluates Layer 1 (deterministic tool selection, argument extraction and statutory numbers). */
 export function evaluateLayer1(
@@ -389,19 +488,20 @@ export function evaluateLayer1(
   toolCalls: readonly RecordedToolCall[],
   finalAnswer: string,
 ): Layer1Result {
-  const matchingCall = toolCalls.find((call) => call.name === evalCase.expectedTool);
-  const hasExpectedTool = matchingCall !== undefined && toolCalls.length === 1;
+  const matchingCall = findInspectedCall(evalCase, toolCalls);
+  const allowsRetries = isMustPassCase(evalCase);
+  const hasExpectedTool = matchingCall !== undefined && (allowsRetries || toolCalls.length === 1);
   const toolErrors = hasExpectedTool
     ? []
     : [
-        `Expected single tool call to "${evalCase.expectedTool}", got: ${
+        `Expected ${allowsRetries ? "first" : "single"} tool call to "${evalCase.expectedTool}", got: ${
           toolCalls.length === 0 ? "none" : toolCalls.map((c) => c.name).join(", ")
         }.`,
       ];
 
   const argsCheck = checkArgsMatch(evalCase, matchingCall);
   const toolOutputCheck = checkToolOutputMatch(evalCase, matchingCall);
-  const proseCheck = checkProseMatch(evalCase, finalAnswer);
+  const proseCheck = checkProseMatch(evalCase, finalAnswer, toolCalls);
 
   const failureReasons = [
     ...toolErrors,
@@ -415,11 +515,11 @@ export function evaluateLayer1(
       hasExpectedTool &&
       argsCheck.hasMatchingArgs &&
       toolOutputCheck.hasMatchingToolOutput &&
-      proseCheck.hasExpectedProseAmounts,
+      proseCheck.hasValidProse,
     hasExpectedTool,
     hasMatchingArgs: argsCheck.hasMatchingArgs,
     hasMatchingToolOutput: toolOutputCheck.hasMatchingToolOutput,
-    hasExpectedProseAmounts: proseCheck.hasExpectedProseAmounts,
+    hasValidProse: proseCheck.hasValidProse,
     missingAmounts: proseCheck.missingAmounts,
     failureReasons,
   };
@@ -476,41 +576,63 @@ function checkToolOutputMatch(
   return { hasMatchingToolOutput: true, failureReasons: [] };
 }
 
+interface ProseCheck {
+  readonly hasValidProse: boolean;
+  readonly missingAmounts: readonly number[];
+  readonly failureReasons: readonly string[];
+}
+
+function containsAnyRmAmount(prose: string): boolean {
+  return [RM_PREFIXED_RE, DECIMAL_MONEY_RE].some((regex) => prose.match(regex) !== null);
+}
+
+function checkRefusalProse(
+  finalAnswer: string,
+  toolCalls: readonly RecordedToolCall[],
+): ProseCheck {
+  const hasSucceededCall = toolCalls.some((call) => !call.isError);
+  const failureReasons = [
+    ...(AFFIRMATIVE_OPT_OUT_RE.test(finalAnswer)
+      ? ["Final answer affirms the opt-out, which the statute does not allow."]
+      : []),
+    ...(REFUSAL_EXPLANATION_RE.test(finalAnswer)
+      ? []
+      : ["Final answer did not clearly explain the statutory refusal."]),
+    ...(hasSucceededCall || !containsAnyRmAmount(finalAnswer)
+      ? []
+      : ["Final answer presents RM amounts although no tool call succeeded."]),
+  ];
+  return { hasValidProse: failureReasons.length === 0, missingAmounts: [], failureReasons };
+}
+
+function describeHeadline(headline: HeadlineAmount): string {
+  const amount = headline.amount.toFixed(2);
+  return headline.party === null ? amount : `${amount} (${headline.party})`;
+}
+
+function checkAmountProse(evalCase: EvalCase, finalAnswer: string): ProseCheck {
+  const attributed = attributeAmounts(finalAnswer);
+  const missing = headlineAmounts(evalCase).filter(
+    (headline) => !isHeadlineAmountFound(headline, finalAnswer, attributed),
+  );
+  const hasValidProse = missing.length === 0;
+  return {
+    hasValidProse,
+    missingAmounts: missing.map((headline) => headline.amount),
+    failureReasons: hasValidProse
+      ? []
+      : [`Final answer missing expected RM amounts: ${missing.map(describeHeadline).join(", ")}.`],
+  };
+}
+
 function checkProseMatch(
   evalCase: EvalCase,
   finalAnswer: string,
-): {
-  hasExpectedProseAmounts: boolean;
-  missingAmounts: readonly number[];
-  failureReasons: readonly string[];
-} {
-  if (evalCase.expectedError !== undefined) {
-    const explainsRefusal =
-      REFUSAL_EXPLANATION_RE.test(finalAnswer) && !AFFIRMATIVE_OPT_OUT_RE.test(finalAnswer);
-    return {
-      hasExpectedProseAmounts: explainsRefusal,
-      missingAmounts: [],
-      failureReasons: explainsRefusal
-        ? []
-        : ["Final answer did not clearly explain the statutory refusal."],
-    };
-  }
-
-  const missingAmounts = headlineNumbers(evalCase).filter(
-    (num) => !containsRmAmount(finalAnswer, num),
-  );
-  const hasExpectedProseAmounts = missingAmounts.length === 0;
-  return {
-    hasExpectedProseAmounts,
-    missingAmounts,
-    failureReasons: hasExpectedProseAmounts
-      ? []
-      : [
-          `Final answer missing expected RM amounts: ${missingAmounts
-            .map((n) => n.toFixed(2))
-            .join(", ")}.`,
-        ],
-  };
+  toolCalls: readonly RecordedToolCall[],
+): ProseCheck {
+  return isMustPassCase(evalCase)
+    ? checkRefusalProse(finalAnswer, toolCalls)
+    : checkAmountProse(evalCase, finalAnswer);
 }
 
 /** Parses and validates the JSON response returned by the LLM judge. */
@@ -542,163 +664,4 @@ export function parseJudgeResponse(rawText: string): RubricScore {
     hasHallucinatedCitation: hallucinatedCitation || citationFaithfulness < FAITHFUL_CITATION_FLOOR,
     rationale,
   };
-}
-
-function round2(value: number): number {
-  return Math.round(value * PERCENT_SCALE) / PERCENT_SCALE;
-}
-
-function meanOf(cases: readonly CaseEvaluation[], pick: (c: CaseEvaluation) => number): number {
-  if (cases.length === 0) return 0;
-  return round2(cases.reduce((sum, c) => sum + pick(c), 0) / cases.length);
-}
-
-/** Aggregates per-case results into a suite scorecard and evaluates the dual CI gate. */
-export function buildScorecard(params: {
-  readonly cases: readonly CaseEvaluation[];
-  readonly agentModel: string;
-  readonly judgeModel: string;
-  readonly thresholds?: GateThresholds;
-  readonly generatedAt?: string;
-}): Scorecard {
-  const thresholds = params.thresholds ?? DEFAULT_THRESHOLDS;
-  const layer1Summary = summarizeLayer1(params.cases);
-  const meanCitationFaithfulness = meanOf(params.cases, (c) => c.layer2.citationFaithfulness);
-  const meanCompleteness = meanOf(params.cases, (c) => c.layer2.completeness);
-  const meanClarity = meanOf(params.cases, (c) => c.layer2.clarity);
-  const overallMean = round2(
-    (meanCitationFaithfulness + meanCompleteness + meanClarity) / RUBRIC_DIMENSION_COUNT,
-  );
-  const hallucinatedCitations = params.cases.filter((c) => c.layer2.hasHallucinatedCitation).length;
-  const gateFailures = collectGateFailures(
-    layer1Summary.passed,
-    layer1Summary.total,
-    overallMean,
-    hallucinatedCitations,
-    thresholds,
-  );
-
-  return {
-    generatedAt: params.generatedAt ?? new Date().toISOString(),
-    agentModel: params.agentModel,
-    judgeModel: params.judgeModel,
-    totalCases: layer1Summary.total,
-    isGatePassed: gateFailures.length === 0,
-    gateFailures,
-    thresholds,
-    layer1Summary,
-    layer2Summary: {
-      meanCitationFaithfulness,
-      meanCompleteness,
-      meanClarity,
-      overallMean,
-      hallucinatedCitations,
-    },
-    cases: params.cases,
-  };
-}
-
-function summarizeLayer1(cases: readonly CaseEvaluation[]): Scorecard["layer1Summary"] {
-  const total = cases.length;
-  const passed = cases.filter((c) => c.layer1.isPassed).length;
-  return {
-    passed,
-    total,
-    passRate: total === 0 ? 0 : round2((passed / total) * PERCENT_SCALE),
-    toolSelectionPassed: cases.filter((c) => c.layer1.hasExpectedTool).length,
-    argsMatchedPassed: cases.filter((c) => c.layer1.hasMatchingArgs).length,
-    toolOutputMatchedPassed: cases.filter((c) => c.layer1.hasMatchingToolOutput).length,
-    proseAmountsPassed: cases.filter((c) => c.layer1.hasExpectedProseAmounts).length,
-  };
-}
-
-function collectGateFailures(
-  passed: number,
-  total: number,
-  overallMean: number,
-  hallucinatedCitations: number,
-  thresholds: GateThresholds,
-): string[] {
-  return [
-    ...(passed < thresholds.minLayer1Passed
-      ? [
-          `Layer 1 deterministic pass count ${passed}/${total} is below threshold ${thresholds.minLayer1Passed}/${total}.`,
-        ]
-      : []),
-    ...(overallMean < thresholds.minMeanRubricScore
-      ? [
-          `Layer 2 mean rubric score ${overallMean.toFixed(2)}/${MAX_RUBRIC_SCORE.toFixed(2)} is below threshold ${thresholds.minMeanRubricScore.toFixed(2)}/${MAX_RUBRIC_SCORE.toFixed(2)}.`,
-        ]
-      : []),
-    ...(hallucinatedCitations > thresholds.maxHallucinatedCitations
-      ? [
-          `Layer 2 detected ${hallucinatedCitations} case(s) with hallucinated citations (max allowed: ${thresholds.maxHallucinatedCitations}).`,
-        ]
-      : []),
-  ];
-}
-
-/** Renders the scorecard as a Markdown report for CI job summaries and artifacts. */
-export function renderScorecardMarkdown(scorecard: Scorecard): string {
-  const status = scorecard.isGatePassed ? "PASS" : "FAIL";
-  const l1 = scorecard.layer1Summary;
-  const l2 = scorecard.layer2Summary;
-  const maxScore = MAX_RUBRIC_SCORE.toFixed(2);
-
-  const lines: string[] = [
-    `# Malaysia Payroll MCP — Agent Eval Scorecard (${status})`,
-    "",
-    `- **Generated at**: \`${scorecard.generatedAt}\``,
-    `- **Agent model**: \`${scorecard.agentModel}\``,
-    `- **Judge model**: \`${scorecard.judgeModel}\``,
-    `- **Total cases**: ${scorecard.totalCases}`,
-    `- **CI Gate**: **${status}** (thresholds: Layer 1 >= ${scorecard.thresholds.minLayer1Passed}/${scorecard.totalCases}, Layer 2 mean >= ${scorecard.thresholds.minMeanRubricScore.toFixed(2)}/${maxScore}, hallucinated citations <= ${scorecard.thresholds.maxHallucinatedCitations})`,
-    "",
-    ...(scorecard.gateFailures.length > 0
-      ? ["## Gate Failures", "", ...scorecard.gateFailures.map((f) => `- ${f}`), ""]
-      : []),
-    "## Layer 1: Deterministic Tool-Use Summary",
-    "",
-    "| Check | Passed | Total | Rate |",
-    "| --- | --- | --- | --- |",
-    `| Tool selection | ${l1.toolSelectionPassed} | ${l1.total} | ${rateStr(l1.toolSelectionPassed, l1.total)} |`,
-    `| Schema arguments | ${l1.argsMatchedPassed} | ${l1.total} | ${rateStr(l1.argsMatchedPassed, l1.total)} |`,
-    `| Tool structured output | ${l1.toolOutputMatchedPassed} | ${l1.total} | ${rateStr(l1.toolOutputMatchedPassed, l1.total)} |`,
-    `| Exact statutory numbers in prose | ${l1.proseAmountsPassed} | ${l1.total} | ${rateStr(l1.proseAmountsPassed, l1.total)} |`,
-    `| **Overall Layer 1** | **${l1.passed}** | **${l1.total}** | **${l1.passRate.toFixed(1)}%** |`,
-    "",
-    `## Layer 2: Model-Based Rubric Summary (${MIN_RUBRIC_SCORE}–${MAX_RUBRIC_SCORE})`,
-    "",
-    "| Dimension | Mean Score |",
-    "| --- | --- |",
-    `| Citation faithfulness | ${l2.meanCitationFaithfulness.toFixed(2)} / ${maxScore} |`,
-    `| Completeness | ${l2.meanCompleteness.toFixed(2)} / ${maxScore} |`,
-    `| Clarity | ${l2.meanClarity.toFixed(2)} / ${maxScore} |`,
-    `| **Overall Mean** | **${l2.overallMean.toFixed(2)} / ${maxScore}** |`,
-    `| Hallucinated citations | ${l2.hallucinatedCitations} |`,
-    "",
-    "## Per-Case Breakdown",
-    "",
-    "| ID | Tool | Layer 1 | Cite | Comp | Clar | Hallucinated | Notes |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- |",
-    ...scorecard.cases.map(renderCaseRow),
-    "",
-  ];
-  return lines.join("\n");
-}
-
-function renderCaseRow(c: CaseEvaluation): string {
-  const l1Badge = c.layer1.isPassed ? "PASS" : "FAIL";
-  const hallucinated = c.layer2.hasHallucinatedCitation ? "YES" : "no";
-  const note =
-    c.layer1.failureReasons.length > 0
-      ? `${c.layer1.failureReasons.join(" ")} | ${c.layer2.rationale}`
-      : c.layer2.rationale;
-  const escapedNote = note.replaceAll("|", "\\|").replaceAll("\n", " ");
-  return `| ${c.id} | \`${c.expectedTool}\` | ${l1Badge} | ${c.layer2.citationFaithfulness} | ${c.layer2.completeness} | ${c.layer2.clarity} | ${hallucinated} | ${escapedNote} |`;
-}
-
-function rateStr(passed: number, total: number): string {
-  if (total === 0) return "0.0%";
-  return `${((passed / total) * PERCENT_SCALE).toFixed(1)}%`;
 }

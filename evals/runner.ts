@@ -12,28 +12,50 @@ import { InMemoryTransport, type McpServer } from "@modelcontextprotocol/server"
 import * as z from "zod";
 import { VERSION } from "../src/version.ts";
 import {
+  type ControlEvaluation,
+  isControlCaught,
+  loadSeededControls,
+  type SeededControl,
+} from "./controls.ts";
+import {
   buildEvalCases,
-  buildScorecard,
   type CaseEvaluation,
   type EvalCase,
   evaluateLayer1,
-  type GateThresholds,
   goldenFileSchema,
+  isMustPassCase,
   isPlainObject,
-  MIN_RUBRIC_SCORE,
   parseCasesJsonl,
   parseJudgeResponse,
   type RecordedToolCall,
   type RubricScore,
-  renderScorecardMarkdown,
-  type Scorecard,
 } from "./grading.ts";
 import { DEFAULT_ANTHROPIC_MODEL, type LlmClient } from "./providers.ts";
+import {
+  buildScorecard,
+  type GateThresholds,
+  renderScorecardMarkdown,
+  type Scorecard,
+} from "./scorecard.ts";
 
 const DEFAULT_CONCURRENCY = 5;
 const MAX_AGENT_TOKENS = 1024;
 const MAX_JUDGE_TOKENS = 512;
 const MAX_TOOL_ROUNDS = 3;
+/** The judge gets one retry after a network, HTTP or parse failure. */
+const JUDGE_MAX_ATTEMPTS = 2;
+
+export interface JudgeOutcome {
+  readonly score: RubricScore | null;
+  readonly error: string | null;
+}
+
+interface JudgeInput {
+  readonly caseId: string;
+  readonly prompt: string;
+  readonly toolCalls: readonly RecordedToolCall[];
+  readonly finalAnswer: string;
+}
 
 export const AGENT_SYSTEM_PROMPT = [
   "You are a Malaysian statutory payroll assistant connected to the malaysia-payroll-mcp server.",
@@ -129,17 +151,50 @@ export async function evaluateSingleCase(params: {
   });
 
   const layer1 = evaluateLayer1(evalCase, toolCalls, finalAnswer);
-  const layer2 = await judgeAnswer({ llm, judgeModel, evalCase, toolCalls, finalAnswer });
+  const judge = await judgeAnswer({
+    llm,
+    judgeModel,
+    input: { caseId: evalCase.id, prompt: evalCase.prompt, toolCalls, finalAnswer },
+  });
 
   return {
     id: evalCase.id,
     prompt: evalCase.prompt,
     expectedTool: evalCase.expectedTool,
+    isMustPass: isMustPassCase(evalCase),
     toolCalls,
     finalAnswer,
     layer1,
-    layer2,
+    layer2: judge.score,
+    judgeError: judge.error,
     durationMs: Date.now() - startedAt,
+  };
+}
+
+/** Runs one seeded bad answer through the real judge and records whether the judge caught it. */
+async function evaluateSeededControl(params: {
+  readonly control: SeededControl;
+  readonly llm: LlmClient;
+  readonly judgeModel: string;
+}): Promise<ControlEvaluation> {
+  const { control, llm, judgeModel } = params;
+  const judge = await judgeAnswer({
+    llm,
+    judgeModel,
+    input: {
+      caseId: control.id,
+      prompt: control.prompt,
+      toolCalls: control.toolCalls,
+      finalAnswer: control.finalAnswer,
+    },
+  });
+  return {
+    id: control.id,
+    description: control.description,
+    expectation: control.expectation,
+    judgment: judge.score,
+    judgeError: judge.error,
+    isCaught: judge.score !== null && isControlCaught(control, judge.score),
   };
 }
 
@@ -249,52 +304,67 @@ async function executeToolUses(
   };
 }
 
-async function judgeAnswer(params: {
-  readonly llm: LlmClient;
-  readonly judgeModel: string;
-  readonly evalCase: EvalCase;
-  readonly toolCalls: readonly RecordedToolCall[];
-  readonly finalAnswer: string;
-}): Promise<RubricScore> {
-  const { llm, judgeModel, evalCase, toolCalls, finalAnswer } = params;
-  const serializedCalls = toolCalls.map((c) => ({
+function buildJudgeUserMessage(input: JudgeInput): string {
+  const serializedCalls = input.toolCalls.map((c) => ({
     tool: c.name,
     arguments: c.arguments,
     isError: c.isError,
     output: c.structuredContent ?? c.textContent,
   }));
-  const judgeUserMessage = [
-    `Case ID: ${evalCase.id}`,
-    `User Prompt: ${evalCase.prompt}`,
+  return [
+    `Case ID: ${input.caseId}`,
+    `User Prompt: ${input.prompt}`,
     "",
     "Tool Calls and Outputs:",
     JSON.stringify(serializedCalls, null, 2),
     "",
     "Agent Final Answer:",
-    finalAnswer,
+    input.finalAnswer,
   ].join("\n");
+}
 
-  try {
-    const response = await llm.messages.create({
-      model: judgeModel,
-      max_tokens: MAX_JUDGE_TOKENS,
-      temperature: 0,
-      system: JUDGE_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: judgeUserMessage }],
-    });
-    const rawText = extractTextBlocks(response.content).join("\n");
-    return parseJudgeResponse(rawText);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Judge evaluation error for case ${evalCase.id}: ${message}`);
-    return {
-      citationFaithfulness: MIN_RUBRIC_SCORE,
-      completeness: MIN_RUBRIC_SCORE,
-      clarity: MIN_RUBRIC_SCORE,
-      hasHallucinatedCitation: false,
-      rationale: `Judge evaluation failed: ${message}`,
-    };
+async function requestJudgement(
+  llm: LlmClient,
+  judgeModel: string,
+  input: JudgeInput,
+): Promise<RubricScore> {
+  const response = await llm.messages.create({
+    model: judgeModel,
+    max_tokens: MAX_JUDGE_TOKENS,
+    temperature: 0,
+    system: JUDGE_SYSTEM_PROMPT,
+    messages: [{ role: "user", content: buildJudgeUserMessage(input) }],
+  });
+  return parseJudgeResponse(extractTextBlocks(response.content).join("\n"));
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Scores one answer with the judge, retrying a failed call once. A judge that still fails returns
+ * an error instead of a score, so the case is excluded from the rubric mean and counted as a judge
+ * error rather than a hallucination.
+ */
+async function judgeAnswer(params: {
+  readonly llm: LlmClient;
+  readonly judgeModel: string;
+  readonly input: JudgeInput;
+}): Promise<JudgeOutcome> {
+  const { llm, judgeModel, input } = params;
+  let lastError = "no attempt was made";
+  for (let attempt = 1; attempt <= JUDGE_MAX_ATTEMPTS; attempt++) {
+    try {
+      return { score: await requestJudgement(llm, judgeModel, input), error: null };
+    } catch (error: unknown) {
+      lastError = describeError(error);
+    }
   }
+  console.error(
+    `Judge evaluation failed for ${input.caseId} after ${JUDGE_MAX_ATTEMPTS} attempts: ${lastError}`,
+  );
+  return { score: null, error: lastError };
 }
 
 /** Validates EVAL_CONCURRENCY as a positive integer. */
@@ -311,6 +381,7 @@ export function parseConcurrency(raw: string | undefined): number {
 export async function runEvalSuite(options: {
   readonly evalCases: readonly EvalCase[];
   readonly llm: LlmClient;
+  readonly controls?: readonly SeededControl[];
   readonly agentModel?: string;
   readonly judgeModel?: string;
   readonly concurrency?: number;
@@ -320,6 +391,7 @@ export async function runEvalSuite(options: {
   const agentModel = options.agentModel ?? DEFAULT_ANTHROPIC_MODEL;
   const judgeModel = options.judgeModel ?? DEFAULT_ANTHROPIC_MODEL;
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
+  const controls = options.controls ?? loadSeededControls();
 
   const mcpClient = await createInMemoryMcpClient(options.serverModuleSpecifier);
   try {
@@ -339,9 +411,13 @@ export async function runEvalSuite(options: {
       agentModel,
       judgeModel,
     });
+    const controlResults = await Promise.all(
+      controls.map((control) => evaluateSeededControl({ control, llm: options.llm, judgeModel })),
+    );
 
     return buildScorecard({
       cases: results,
+      controls: controlResults,
       agentModel,
       judgeModel,
       ...(options.thresholds !== undefined ? { thresholds: options.thresholds } : {}),
