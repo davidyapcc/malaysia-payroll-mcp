@@ -57,6 +57,35 @@
     }
   },
   {
+    "id": "CTRL-POLISHED-NO-DISCLAIMER",
+    "description": "Every figure matches the tool output and the answer is well structured with sources, but the fixed-salary and non-advice disclaimer is missing. The judge must not reward polish over the missing disclaimer.",
+    "prompt": "Calculate the monthly EPF contributions (employee, employer and total) for a 30-year-old Malaysian earning RM 3,000 in November 2026.",
+    "toolCalls": [
+      {
+        "name": "calculate_epf",
+        "arguments": {
+          "monthlySalary": 3000,
+          "age": 30,
+          "citizenship": "malaysian",
+          "payPeriod": "2026-11"
+        },
+        "isError": false,
+        "textContent": "EPF contributions for RM3,000.00: employee RM330.00, employer RM390.00, total RM720.00.",
+        "structuredContent": {
+          "part": "A",
+          "employer": 390,
+          "employee": 330,
+          "total": 720
+        }
+      }
+    ],
+    "finalAnswer": "## EPF (KWSP) contributions for November 2026\n\n**Monthly salary:** RM 3,000.00 (Malaysian, age 30)\n\n### Contributions\n| Party | Amount |\n| --- | --- |\n| Employee | RM 330.00 |\n| Employer | RM 390.00 |\n| **Total** | **RM 720.00** |\n\n### How this was worked out\nThe calculation uses the EPF rate band for a salary of RM 3,000.00 in November 2026. The employee share comes from the employee column of that band and the employer share from the employer column. Both figures match the calculate_epf result for this pay period.\n\n### Summary\nThe employee pays RM 330.00 and the employer pays RM 390.00, a combined RM 720.00 each month.",
+    "expectation": {
+      "kind": "dimension",
+      "dimension": "completeness"
+    }
+  },
+  {
     "id": "CTRL-SWAPPED-PAYER",
     "description": "The employer and employee shares are swapped, which contradicts the tool output.",
     "prompt": "Calculate the monthly EPF contributions (employee, employer and total) for a 30-year-old Malaysian earning RM 3,000 in November 2026.",

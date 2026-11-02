@@ -39,6 +39,7 @@ export interface Layer1Summary {
   readonly argsMatchedPassed: number;
   readonly toolOutputMatchedPassed: number;
   readonly proseCheckPassed: number;
+  readonly disclaimerPassed: number;
 }
 
 export interface MustPassSummary {
@@ -118,6 +119,7 @@ function summarizeLayer1(
     argsMatchedPassed: countWhere(cases, (c) => c.layer1.hasMatchingArgs),
     toolOutputMatchedPassed: countWhere(cases, (c) => c.layer1.hasMatchingToolOutput),
     proseCheckPassed: countWhere(cases, (c) => c.layer1.hasValidProse),
+    disclaimerPassed: countWhere(cases, (c) => c.layer1.hasDisclaimer),
   };
 }
 
@@ -295,6 +297,7 @@ function renderLayer1(summary: Layer1Summary): string[] {
     `| Schema arguments | ${summary.argsMatchedPassed} | ${summary.total} | ${rateStr(summary.argsMatchedPassed, summary.total)} |`,
     `| Tool structured output | ${summary.toolOutputMatchedPassed} | ${summary.total} | ${rateStr(summary.toolOutputMatchedPassed, summary.total)} |`,
     `| Exact statutory numbers in prose | ${summary.proseCheckPassed} | ${summary.total} | ${rateStr(summary.proseCheckPassed, summary.total)} |`,
+    `| Disclaimer (fixed salary, not tax advice) | ${summary.disclaimerPassed} | ${summary.total} | ${rateStr(summary.disclaimerPassed, summary.total)} |`,
     `| **Overall Layer 1** | **${summary.passed}** | **${summary.total}** | **${summary.passRate.toFixed(1)}%** |`,
     "",
   ];
