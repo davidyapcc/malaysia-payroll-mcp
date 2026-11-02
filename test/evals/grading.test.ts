@@ -271,6 +271,48 @@ describe("Layer 1: argument canonicalization and number matching", () => {
     );
     expect(soc05Acceptance.isPassed).toBe(false);
     expect(soc05Acceptance.hasValidProse).toBe(false);
+
+    const soc05NotAvailable = evaluateLayer1(
+      soc05,
+      [
+        {
+          name: "calculate_socso_eis",
+          arguments: soc05.expectedInput,
+          isError: true,
+          textContent: "Foreign workers can't opt out of SKBBK",
+        },
+      ],
+      "Opting out is not available for foreign workers, so these figures assume SKBBK cover.",
+    );
+    expect(soc05NotAvailable.hasValidProse).toBe(true);
+
+    const soc05NotAvailableAlt = evaluateLayer1(
+      soc05,
+      [
+        {
+          name: "calculate_socso_eis",
+          arguments: soc05.expectedInput,
+          isError: true,
+          textContent: "Foreign workers can't opt out of SKBBK",
+        },
+      ],
+      "The opt-out isn't available to foreign workers.",
+    );
+    expect(soc05NotAvailableAlt.hasValidProse).toBe(true);
+
+    const soc05AvailableOptOut = evaluateLayer1(
+      soc05,
+      [
+        {
+          name: "calculate_socso_eis",
+          arguments: soc05.expectedInput,
+          isError: true,
+          textContent: "Foreign workers can't opt out of SKBBK",
+        },
+      ],
+      "Opting out is available for foreign workers.",
+    );
+    expect(soc05AvailableOptOut.hasValidProse).toBe(false);
   });
 
   it("fails Layer 1 when expected tool is missing or incorrect tool is called", () => {

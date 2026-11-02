@@ -38,7 +38,7 @@ For a case with an `expectedError`, Layer 1 allows retries after the expected re
 
 ## Prompts do not coach the agent
 
-A high score should come from the server's tool descriptions and results, not from the eval telling the agent what the grader checks. So the EPF, MTD and net pay prompts in `evals/cases.jsonl` state the facts a payroll user would give, in that user's words: no enum values, ISO pay periods, tax category codes or lists of the graded figures. `AGENT_SYSTEM_PROMPT` only tells the agent to use the tools and base its answer on them. It does not ask for formats, citations or a disclaimer, because the grader scores those and the tool results already carry them. The SOC prompts are kept as they are by decision.
+A high score should come from the server's tool descriptions and results, not from the eval telling the agent what the grader checks. So the EPF, MTD and net pay prompts in `evals/cases.jsonl` state the facts a payroll user would give, in that user's words: no enum values, ISO pay periods, tax category codes or lists of the graded figures. The EPF prompts do ask for the total, because Layer 1 grades it and an answer should not fail for leaving out a figure nobody asked for. `AGENT_SYSTEM_PROMPT` only tells the agent to use the tools and base its answer on them. It does not ask for formats, citations or a disclaimer, because the grader scores those and the tool results already carry them. The SOC prompts are kept as they are by decision.
 
 Every numeric input from the golden case stays in its prompt, apart from `taxCategory`, a code the agent has to work out from marital status. `test/evals/grading.test.ts` enforces both rules.
 

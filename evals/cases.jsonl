@@ -1,12 +1,12 @@
-{"id":"EPF-01","prompt":"How much EPF goes in each month for a 30-year-old Malaysian citizen on a salary of RM 10 in November 2026?"}
-{"id":"EPF-02","prompt":"We pay a 30-year-old Malaysian RM 3,000 a month. What's the EPF for November 2026?"}
-{"id":"EPF-03","prompt":"How much EPF is due on a RM 5,000 monthly salary for a 30-year-old Malaysian citizen in November 2026?"}
-{"id":"EPF-04","prompt":"What is the EPF for a 30-year-old Malaysian citizen earning RM 5,000.01 a month in November 2026?"}
-{"id":"EPF-05","prompt":"A 30-year-old Malaysian citizen earns RM 25,000 a month. How much EPF is payable for November 2026?"}
-{"id":"EPF-09","prompt":"How much EPF is payable for a 30-year-old Malaysian citizen earning RM 25,000.50 a month in November 2026?"}
-{"id":"EPF-06","prompt":"One of our staff is a 62-year-old permanent resident of Malaysia on RM 4,500 a month. What's their EPF for November 2026?"}
-{"id":"EPF-07","prompt":"What EPF is payable for a 65-year-old Malaysian citizen on RM 3,000 a month in November 2026?"}
-{"id":"EPF-08","prompt":"What's the monthly EPF for a 30-year-old foreign worker, not a PR, earning RM 3,500 in November 2026? They first registered with EPF in 2015."}
+{"id":"EPF-01","prompt":"How much EPF goes in each month for a 30-year-old Malaysian citizen on a salary of RM 10 in November 2026? I need the total and who pays what."}
+{"id":"EPF-02","prompt":"We pay a 30-year-old Malaysian RM 3,000 a month. What's the total EPF for November 2026, and who pays what?"}
+{"id":"EPF-03","prompt":"How much EPF is due in total on a RM 5,000 monthly salary for a 30-year-old Malaysian citizen in November 2026, and who pays what?"}
+{"id":"EPF-04","prompt":"What is the total EPF for a 30-year-old Malaysian citizen earning RM 5,000.01 a month in November 2026, and who pays what?"}
+{"id":"EPF-05","prompt":"A 30-year-old Malaysian citizen earns RM 25,000 a month. How much EPF is payable in total for November 2026, and who pays what?"}
+{"id":"EPF-09","prompt":"How much EPF is payable in total for a 30-year-old Malaysian citizen earning RM 25,000.50 a month in November 2026, and who pays what?"}
+{"id":"EPF-06","prompt":"One of our staff is a 62-year-old permanent resident of Malaysia on RM 4,500 a month. What's their total EPF for November 2026, and who pays what?"}
+{"id":"EPF-07","prompt":"What total EPF is payable for a 65-year-old Malaysian citizen on RM 3,000 a month in November 2026, and who pays what?"}
+{"id":"EPF-08","prompt":"What's the total monthly EPF for a 30-year-old foreign worker, not a PR, earning RM 3,500 in November 2026, and who pays what? They first registered with EPF in 2015."}
 {"id":"SOC-01","prompt":"Calculate the SOCSO and SKBBK contributions for a 30-year-old Malaysian citizen earning RM 3,000 in November 2026 who is covered by SKBBK."}
 {"id":"SOC-02","prompt":"What are the SOCSO and SKBBK contributions for a 30-year-old Malaysian earning RM 3,000 in November 2026 who has opted out of SKBBK with PERKESO's approval?"}
 {"id":"SOC-03","prompt":"Calculate the SOCSO and SKBBK contributions for a 62-year-old Malaysian citizen earning RM 3,000 in November 2026 who has opted out of SKBBK."}

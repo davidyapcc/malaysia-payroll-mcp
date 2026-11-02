@@ -493,7 +493,7 @@ function isHeadlineAmountFound(
 }
 
 const REFUSAL_EXPLANATION_RE =
-  /(?:cannot|can't|not\s+(?:allowed|permitted|eligible|possible)|unable|prohibited)\b[^.\n]*\bopt[\s-]*out|opt[\s-]*out\b[^.\n]*\b(?:not\s+(?:allowed|permitted|eligible|possible)|prohibited)|\bmandatory\b/i;
+  /(?:cannot|can't|(?:not|isn't)\s+(?:allowed|permitted|eligible|possible|available)|unable|prohibited)\b[^.\n]*\bopt(?:ing)?[\s-]*out|opt(?:ing)?[\s-]*out\b[^.\n]*\b(?:(?:not|isn't)\s+(?:allowed|permitted|eligible|possible|available)|prohibited)|\bmandatory\b/i;
 const AFFIRMATIVE_OPT_OUT_RE =
   /(?<!\bnot\s+)\b(?:can|may|allowed\s+to|permitted\s+to|eligible\s+to)\s+opt[\s-]*out\b/i;
 
