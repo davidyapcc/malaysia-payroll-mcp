@@ -8,7 +8,11 @@ We therefore evaluate every eval case in two layers, and both gate CI:
 
 ## Departure from the plan: the gate runs on OpenAI
 
-The plan called for the cheapest Claude model. The gate instead runs on OpenAI (`gpt-4o-mini` for the agent and the judge), because it is the only provider key the repository holds. The Anthropic adapter (`claude-haiku-4-5`) is tested against mocks only and has not run live. Moving the gate to Claude is a follow-up for when an Anthropic key is available.
+The plan called for the cheapest Claude model. The gate instead runs on OpenAI, because it is the only provider key the repository holds: `gpt-4o-mini` for the agent and `gpt-4o` for the judge. The Anthropic adapter (`claude-haiku-4-5`) is tested against mocks only and has not run live. Moving the gate to Claude is a follow-up for when an Anthropic key is available.
+
+## Judge model
+
+The judge runs on `gpt-4o`, not `gpt-4o-mini`. In the first live run (commit 340cd03), `gpt-4o-mini` caught only 2 of the 4 seeded controls, missing the disclaimer and the wrong RM total. It also invented errors in its rationales (for example "RM 66.40 instead of RM 66.40"), and it scored the SOC-05 answer, which silently retried after the refusal, 5/5/5. The rubric says that answer must score 1 or 2. The agent stays on `gpt-4o-mini`, so the model under test is unchanged. The judge model is set by `EVAL_JUDGE_MODEL` in `.github/workflows/ci.yml`.
 
 ## Gate
 
