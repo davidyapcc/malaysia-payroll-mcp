@@ -23,7 +23,7 @@ The agent runs on `gpt-4o`, not `gpt-4o-mini`. In the live run at 340cd03, `gpt-
 - **Layer 1, standard cases**: at least 32 of the 34 standard cases must pass. The allowance of two misses is the named constant `LAYER1_ALLOWED_MISSES`, and the threshold is derived from it, not hard-coded.
 - **Must-pass refusal cases**: any case with an `expectedError` (SOC-05 today) must pass Layer 1, or the gate fails whatever the suite count. The Scorecard reports this result separately and says when it caused the failure.
 - **Layer 2 mean** of at least 4.0 out of 5.0, with **zero hallucinated citations**.
-- **Party attribution**: EPF and SOCSO/EIS shares, and net pay's employee deductions and employer contributions, must be attributed to the right party by the answer. A figure that is named under the other party, or that the answer never attributes, fails. A figure that both parties pay may be named once for both.
+- **Party attribution**: EPF and SOCSO/EIS shares, and net pay's employee deductions and employer contributions, must be attributed to the right party by the answer. A figure that is named under the other party, or that the answer never attributes, fails. A figure that both parties pay may be named once for both. A party carries to later lines only from a label with no amount, such as `### Employee Deductions:`, and a bare `### Deductions:` label means the employee. A note on one figure or a quoted rule does not change it.
 - **Agent errors**: an agent round that fails is retried once. If the retry fails too, the case is recorded with an `agentError` and is not graded or judged. It is excluded from the rubric mean and counted in `agentErrors`. Any non-zero count fails the gate with its own message. In Layer 1 it counts as not passed, and if it is a must-pass case it is reported once, under agent errors.
 - **Zero judge errors**: a judge call is retried once. A call that still fails (network, HTTP or unparseable reply) is counted in `judgeErrors`, is excluded from the rubric mean rather than scored 1/1/1, and fails the gate with its own message.
 - **Seeded controls**: every control in `evals/controls.json` must be caught by the judge (see below).
@@ -35,6 +35,12 @@ For a case with an `expectedError`, Layer 1 allows retries after the expected re
 ## Seeded controls
 
 `evals/controls.json` holds five deliberately bad answers, each with the tool output it contradicts: a made-up statute citation (the judge must flag a hallucinated citation), a missing disclaimer, a swapped payer, a wrong RM total, and a silent SKBBK retry (the agent's refusal call is followed by figures and no refusal explanation). For the last four, the judge must score the named dimension at or below 3. Each live run sends them through the real judge. If the judge passes any control, the gate fails and the Scorecard lists the control. Controls are not part of the 35 cases or the rubric mean. Their correctness is tested with a fake judge that passes everything (the gate fails) and one that catches everything (the gate passes).
+
+## Prompts do not coach the agent
+
+A high score should come from the server's tool descriptions and results, not from the eval telling the agent what the grader checks. So the EPF, MTD and net pay prompts in `evals/cases.jsonl` state the facts a payroll user would give, in that user's words: no enum values, ISO pay periods, tax category codes or lists of the graded figures. The EPF prompts do ask for the total, because Layer 1 grades it and an answer should not fail for leaving out a figure nobody asked for. `AGENT_SYSTEM_PROMPT` only tells the agent to use the tools and base its answer on them. It does not ask for formats, citations or a disclaimer, because the grader scores those and the tool results already carry them. The SOC prompts are kept as they are by decision.
+
+Every numeric input from the golden case stays in its prompt, apart from `taxCategory`, a code the agent has to work out from marital status. `test/evals/grading.test.ts` enforces both rules.
 
 ## Consequences
 

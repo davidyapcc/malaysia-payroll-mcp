@@ -94,6 +94,57 @@ describe("net pay party attribution", () => {
     expect(result.missingAmounts).not.toContain(100);
   });
 
+  it("attributes figures under a Deductions heading to the employee, past a line naming the employer", () => {
+    const answer = [
+      "### Deductions:",
+      "- **EPF:** RM 100.00",
+      "- **SOCSO:** RM 0.00 (employee pays nothing, employer pays)",
+      "- **SKBBK:** RM 37.15",
+      "- **EIS:** RM 0.00",
+      "- **MTD:** RM 124.00",
+      "**Total Deductions:** RM 261.15",
+      "**Net Pay:** RM 4,738.85",
+      "### Employer Contributions:",
+      "- **EPF:** RM 100.00",
+      "- **SOCSO:** RM 61.90",
+      "- **EIS:** RM 0.00",
+      "**Total Employer Contributions:** RM 161.90",
+      "**Total Cost:** RM 5,161.90",
+    ].join("\n");
+    expect(prose("NP-04", answer).missingAmounts).toEqual([]);
+  });
+
+  it("fails an employer contribution listed only under a Deductions heading", () => {
+    const answer = ["### Statutory Deductions:", "- **EPF:** RM 650.00"].join("\n");
+    expect(prose("NP-01", answer).missingAmounts).toContain(650);
+  });
+
+  it("does not carry a party from a line with a figure onto the next line", () => {
+    const answer = ["- **SOCSO:** RM 61.90 (employer pays)", "- **EPF:** RM 100.00"].join("\n");
+    expect(prose("NP-04", answer).missingAmounts).toContain(100);
+  });
+
+  it("does not carry a party from a rule quoted under a figure", () => {
+    const answer = [
+      "### Employee Deductions:",
+      "1. **EPF:** RM 100.00",
+      "   - **Rule:** Part F is 2% employee and 2% employer.",
+      "2. **SKBBK:** RM 37.15",
+    ].join("\n");
+    const { missingAmounts } = prose("NP-05", answer);
+    expect(missingAmounts).not.toContain(37.15);
+  });
+
+  it("carries a party from an all-bold label with no colon", () => {
+    const answer = ["**Employee**", "- **SKBBK:** RM 37.15"].join("\n");
+    expect(prose("NP-05", answer).missingAmounts).not.toContain(37.15);
+  });
+
+  it("does not treat a line that only mentions deductions as a heading", () => {
+    const answer = ["These are the deductions you asked about:", "- **MTD:** RM 124.00"].join("\n");
+    expect(prose("NP-04", answer).missingAmounts).toContain(124);
+  });
+
   it("fails a deduction that the answer never attributes to a party", () => {
     const result = prose(
       "NP-02",

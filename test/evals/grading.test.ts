@@ -48,6 +48,36 @@ describe("evals/cases.jsonl completeness and validation", () => {
     expect(evalCases.map((s) => s.id).sort()).toEqual([...goldenIds].sort());
   });
 
+  it("states every numeric input in the prompt, except the tax category code", () => {
+    const numbersIn = (text: string) =>
+      (text.replaceAll(",", "").match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
+    const numericInputs = (input: Record<string, unknown>): number[] =>
+      Object.entries(input).flatMap(([key, value]) => {
+        if (key === "taxCategory") return [];
+        if (typeof value === "number") return [value];
+        return isPlainObject(value) ? numericInputs(value) : [];
+      });
+
+    const missing = evalCases.flatMap((evalCase) =>
+      numericInputs(evalCase.expectedInput)
+        .filter((value) => !numbersIn(evalCase.prompt).includes(value))
+        .map((value) => `${evalCase.id}: ${value}`),
+    );
+
+    expect(missing).toEqual([]);
+  });
+
+  it("keeps grader hints out of the EPF, MTD and net pay prompts", () => {
+    const graderHints =
+      /\btax category\b|\b\d{4}-\d{2}\b|same salary|\bonly\b|employee, employer and total|\bnon-Malaysian\b|statutory deductions|employer contributions|year-to-date|qualifying/i;
+    const coached = evalCases
+      .filter((evalCase) => evalCase.expectedTool !== "calculate_socso_eis")
+      .filter((evalCase) => graderHints.test(evalCase.prompt))
+      .map((evalCase) => evalCase.id);
+
+    expect(coached).toEqual([]);
+  });
+
   it("rejects malformed JSONL lines, invalid golden files, duplicate IDs, unknown IDs and missing golden cases", () => {
     expect(() => parseCasesJsonl("[]")).toThrow("cases.jsonl:1");
     expect(() => parseCasesJsonl('{"id":"","prompt":"hi"}')).toThrow("cases.jsonl:1");
@@ -241,6 +271,48 @@ describe("Layer 1: argument canonicalization and number matching", () => {
     );
     expect(soc05Acceptance.isPassed).toBe(false);
     expect(soc05Acceptance.hasValidProse).toBe(false);
+
+    const soc05NotAvailable = evaluateLayer1(
+      soc05,
+      [
+        {
+          name: "calculate_socso_eis",
+          arguments: soc05.expectedInput,
+          isError: true,
+          textContent: "Foreign workers can't opt out of SKBBK",
+        },
+      ],
+      "Opting out is not available for foreign workers, so these figures assume SKBBK cover.",
+    );
+    expect(soc05NotAvailable.hasValidProse).toBe(true);
+
+    const soc05NotAvailableAlt = evaluateLayer1(
+      soc05,
+      [
+        {
+          name: "calculate_socso_eis",
+          arguments: soc05.expectedInput,
+          isError: true,
+          textContent: "Foreign workers can't opt out of SKBBK",
+        },
+      ],
+      "The opt-out isn't available to foreign workers.",
+    );
+    expect(soc05NotAvailableAlt.hasValidProse).toBe(true);
+
+    const soc05AvailableOptOut = evaluateLayer1(
+      soc05,
+      [
+        {
+          name: "calculate_socso_eis",
+          arguments: soc05.expectedInput,
+          isError: true,
+          textContent: "Foreign workers can't opt out of SKBBK",
+        },
+      ],
+      "Opting out is available for foreign workers.",
+    );
+    expect(soc05AvailableOptOut.hasValidProse).toBe(false);
   });
 
   it("fails Layer 1 when expected tool is missing or incorrect tool is called", () => {
@@ -437,6 +509,53 @@ describe("Layer 1: employer and employee shares name their party", () => {
       answer,
     );
     expect(result.missingAmounts).toEqual([]);
+  });
+
+  it("counts 'pays nothing' as a zero share for the party that pays nothing", () => {
+    const epf = {
+      ...findCase("EPF-02"),
+      expectedOutput: { employer: 120, employee: 0, total: 120 },
+    };
+    const correct = "The employer pays the full amount of RM 120, while the employee pays nothing.";
+    const swapped = "The employee pays the full amount of RM 120, while the employer pays nothing.";
+
+    expect(evaluateLayer1(epf, [epf02Call()], correct).missingAmounts).toEqual([]);
+    expect(evaluateLayer1(epf, [epf02Call()], swapped).missingAmounts).toEqual([120, 0]);
+  });
+
+  it("does not count other uses of 'nothing' as a zero share", () => {
+    const epf = {
+      ...findCase("EPF-02"),
+      expectedOutput: { employer: 120, employee: 0, total: 120 },
+    };
+    const answer = "The employer pays RM 120, and the employee has nothing further to do.";
+
+    expect(evaluateLayer1(epf, [epf02Call()], answer).missingAmounts).toEqual([0]);
+  });
+
+  it("attributes one amount to both parties across an 'each' clause", () => {
+    const epf = {
+      ...findCase("EPF-02"),
+      expectedOutput: { employer: 70, employee: 70, total: 140 },
+    };
+    const answers = [
+      "The total is RM 140. This is split between the employee and the employer, with each contributing RM 70.",
+      "The total is RM 140. This is split between the employee and the employer, each paying RM 70.",
+    ];
+
+    for (const answer of answers) {
+      expect(evaluateLayer1(epf, [epf02Call()], answer).missingAmounts).toEqual([]);
+    }
+  });
+
+  it("does not attribute an 'each' clause to a party that is not named", () => {
+    const epf = {
+      ...findCase("EPF-02"),
+      expectedOutput: { employer: 70, employee: 70, total: 140 },
+    };
+    const answer = "The total is RM 140. The employer pays, with each instalment being RM 70.";
+
+    expect(evaluateLayer1(epf, [epf02Call()], answer).missingAmounts).toEqual([70]);
   });
 });
 
