@@ -237,7 +237,11 @@ describe("agent loop and suite-level gating", () => {
     });
     expect(scorecard.layer2Summary.overallMean).toBe(5);
     expect(scorecard.layer2Summary.hallucinatedCitations).toBe(0);
-    expect(scorecard.controlSummary).toEqual({ caught: 4, total: 4, missedIds: [] });
+    expect(scorecard.controlSummary).toEqual({
+      caught: controls.length,
+      total: controls.length,
+      missedIds: [],
+    });
     expect(scorecard.judgeErrors).toBe(0);
     expect(scorecard.isGatePassed).toBe(true);
   });

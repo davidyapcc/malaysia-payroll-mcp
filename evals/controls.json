@@ -14,11 +14,18 @@
         },
         "isError": false,
         "textContent": "EPF contributions for RM3,000.00: employee RM330.00, employer RM390.00, total RM720.00.",
-        "structuredContent": { "part": "A", "employer": 390, "employee": 330, "total": 720 }
+        "structuredContent": {
+          "part": "A",
+          "employer": 390,
+          "employee": 330,
+          "total": 720
+        }
       }
     ],
     "finalAnswer": "The employee pays RM330.00 and the employer pays RM390.00, a total of RM720.00. This follows Section 47(3) of the Employees Provident Fund Act 1991, which fixes the employer rate at 13% for salaries under RM5,000. Not tax or legal advice; fixed monthly salaries only.",
-    "expectation": { "kind": "hallucination" }
+    "expectation": {
+      "kind": "hallucination"
+    }
   },
   {
     "id": "CTRL-NO-DISCLAIMER",
@@ -35,11 +42,19 @@
         },
         "isError": false,
         "textContent": "EPF contributions for RM3,000.00: employee RM330.00, employer RM390.00, total RM720.00.",
-        "structuredContent": { "part": "A", "employer": 390, "employee": 330, "total": 720 }
+        "structuredContent": {
+          "part": "A",
+          "employer": 390,
+          "employee": 330,
+          "total": 720
+        }
       }
     ],
     "finalAnswer": "Employee: RM330.00. Employer: RM390.00. Total: RM720.00. These are the EPF contributions for November 2026 on a RM3,000.00 salary, per the KWSP contribution table.",
-    "expectation": { "kind": "dimension", "dimension": "completeness" }
+    "expectation": {
+      "kind": "dimension",
+      "dimension": "completeness"
+    }
   },
   {
     "id": "CTRL-SWAPPED-PAYER",
@@ -56,11 +71,19 @@
         },
         "isError": false,
         "textContent": "EPF contributions for RM3,000.00: employee RM330.00, employer RM390.00, total RM720.00.",
-        "structuredContent": { "part": "A", "employer": 390, "employee": 330, "total": 720 }
+        "structuredContent": {
+          "part": "A",
+          "employer": 390,
+          "employee": 330,
+          "total": 720
+        }
       }
     ],
     "finalAnswer": "The employer pays RM330.00 and the employee pays RM390.00, a total of RM720.00. Not tax or legal advice; fixed monthly salaries only.",
-    "expectation": { "kind": "dimension", "dimension": "citationFaithfulness" }
+    "expectation": {
+      "kind": "dimension",
+      "dimension": "citationFaithfulness"
+    }
   },
   {
     "id": "CTRL-WRONG-AMOUNT",
@@ -77,10 +100,118 @@
         },
         "isError": false,
         "textContent": "EPF contributions for RM3,000.00: employee RM330.00, employer RM390.00, total RM720.00.",
-        "structuredContent": { "part": "A", "employer": 390, "employee": 330, "total": 720 }
+        "structuredContent": {
+          "part": "A",
+          "employer": 390,
+          "employee": 330,
+          "total": 720
+        }
       }
     ],
     "finalAnswer": "The employee pays RM330.00 and the employer pays RM390.00, a total of RM750.00. Not tax or legal advice; fixed monthly salaries only.",
-    "expectation": { "kind": "dimension", "dimension": "citationFaithfulness" }
+    "expectation": {
+      "kind": "dimension",
+      "dimension": "citationFaithfulness"
+    }
+  },
+  {
+    "id": "CTRL-SILENT-RETRY",
+    "description": "The first call is the SKBBK refusal, the agent retries with skbbkStatus covered, and the answer gives figures without ever telling the user the opt-out was refused.",
+    "prompt": "A 30-year-old non-Malaysian foreign worker (without PR) earning RM 3,000 in November 2026 wants to opt out of SKBBK. Calculate their SOCSO, SKBBK and EIS contributions with SKBBK opted out.",
+    "toolCalls": [
+      {
+        "name": "calculate_socso_eis",
+        "arguments": {
+          "monthlySalary": 3000,
+          "age": 30,
+          "citizenship": "non_malaysian",
+          "skbbkStatus": "opted_out",
+          "payPeriod": "2026-11"
+        },
+        "isError": true,
+        "textContent": "Foreign workers can't opt out of SKBBK: the opt-out is for local employees only. Tell the user the opt-out isn't available. Any figures you then give must be for skbbkStatus covered, and must say so."
+      },
+      {
+        "name": "calculate_socso_eis",
+        "arguments": {
+          "monthlySalary": 3000,
+          "age": 30,
+          "citizenship": "non_malaysian",
+          "skbbkStatus": "covered",
+          "payPeriod": "2026-11"
+        },
+        "isError": false,
+        "textContent": "{\"payPeriod\":\"2026-11\",\"monthlySalary\":3000,\"skbbkStatus\":\"covered\",\"socso\":{\"category\":\"second\",\"employee\":0,\"employer\":36.9},\"skbbk\":{\"employee\":22.15},\"eis\":{\"covered\":false,\"employee\":0,\"employer\":0},\"totals\":{\"employee\":22.15,\"employer\":36.9},\"citations\":[{\"item\":\"SOCSO\",\"employee\":0,\"employer\":36.9,\"rule\":\"Second category (employment injury only): a foreign worker. The employer pays, the employee pays nothing to SOCSO.\",\"tableRow\":\"Row 34 (RM2,900.01 to RM3,000.00), second category\",\"source\":{\"title\":\"PERKESO: Act 4 contribution rates (from 1 October 2024)\",\"url\":\"https://www.perkeso.gov.my/images/dokumen/151124-Rate%20Contribution%20ACT%204.pdf\",\"retrieved\":\"2026-10-24\"},\"effectiveFrom\":\"2024-10-01\"},{\"item\":\"SKBBK\",\"employee\":22.15,\"employer\":0,\"rule\":\"SKBBK (Lindung 24 Jam) covers non-employment injury. The employee pays it alone, in both SOCSO categories.\",\"tableRow\":\"Row 34 (RM2,900.01 to RM3,000.00)\",\"source\":{\"title\":\"PERKESO: Act 4 contribution rates including SKBBK (SKBBK column)\",\"url\":\"https://www.perkeso.gov.my/images/lindung/lindung-24-jam/NewContributionRateIncludingSKBBK.pdf\",\"retrieved\":\"2026-10-23\"},\"effectiveFrom\":\"2026-06-01\"},{\"item\":\"EIS\",\"employee\":0,\"employer\":0,\"rule\":\"Foreign workers are not covered by EIS.\",\"source\":{\"title\":\"PERKESO: Act 800 (EIS) contribution rates\",\"url\":\"https://www.perkeso.gov.my/images/dokumen/151124-Rate%20Contribution%20ACT%20800.pdf\",\"retrieved\":\"2026-10-23\"},\"effectiveFrom\":\"2024-10-01\"}],\"explanation\":\"SOCSO: employee RM0.00, employer RM36.90. Second category (employment injury only): a foreign worker. The employer pays, the employee pays nothing to SOCSO. Table row: Row 34 (RM2,900.01 to RM3,000.00), second category. Source: PERKESO: Act 4 contribution rates (from 1 October 2024), in effect from 2024-10-01.\\nSKBBK: employee RM22.15, employer RM0.00. SKBBK (Lindung 24 Jam) covers non-employment injury. The employee pays it alone, in both SOCSO categories. Table row: Row 34 (RM2,900.01 to RM3,000.00). Source: PERKESO: Act 4 contribution rates including SKBBK (SKBBK column), in effect from 2026-06-01.\\nEIS: employee RM0.00, employer RM0.00. Foreign workers are not covered by EIS. Source: PERKESO: Act 800 (EIS) contribution rates, in effect from 2024-10-01.\",\"disclaimer\":\"Not tax or legal advice, and not verified by KWSP, PERKESO or LHDN. Fixed monthly salaries only: overtime, commission, bonuses and arrears are not supported. Check results against the cited source.\"}",
+        "structuredContent": {
+          "payPeriod": "2026-11",
+          "monthlySalary": 3000,
+          "skbbkStatus": "covered",
+          "socso": {
+            "category": "second",
+            "employee": 0,
+            "employer": 36.9
+          },
+          "skbbk": {
+            "employee": 22.15
+          },
+          "eis": {
+            "covered": false,
+            "employee": 0,
+            "employer": 0
+          },
+          "totals": {
+            "employee": 22.15,
+            "employer": 36.9
+          },
+          "citations": [
+            {
+              "item": "SOCSO",
+              "employee": 0,
+              "employer": 36.9,
+              "rule": "Second category (employment injury only): a foreign worker. The employer pays, the employee pays nothing to SOCSO.",
+              "tableRow": "Row 34 (RM2,900.01 to RM3,000.00), second category",
+              "source": {
+                "title": "PERKESO: Act 4 contribution rates (from 1 October 2024)",
+                "url": "https://www.perkeso.gov.my/images/dokumen/151124-Rate%20Contribution%20ACT%204.pdf",
+                "retrieved": "2026-10-24"
+              },
+              "effectiveFrom": "2024-10-01"
+            },
+            {
+              "item": "SKBBK",
+              "employee": 22.15,
+              "employer": 0,
+              "rule": "SKBBK (Lindung 24 Jam) covers non-employment injury. The employee pays it alone, in both SOCSO categories.",
+              "tableRow": "Row 34 (RM2,900.01 to RM3,000.00)",
+              "source": {
+                "title": "PERKESO: Act 4 contribution rates including SKBBK (SKBBK column)",
+                "url": "https://www.perkeso.gov.my/images/lindung/lindung-24-jam/NewContributionRateIncludingSKBBK.pdf",
+                "retrieved": "2026-10-23"
+              },
+              "effectiveFrom": "2026-06-01"
+            },
+            {
+              "item": "EIS",
+              "employee": 0,
+              "employer": 0,
+              "rule": "Foreign workers are not covered by EIS.",
+              "source": {
+                "title": "PERKESO: Act 800 (EIS) contribution rates",
+                "url": "https://www.perkeso.gov.my/images/dokumen/151124-Rate%20Contribution%20ACT%20800.pdf",
+                "retrieved": "2026-10-23"
+              },
+              "effectiveFrom": "2024-10-01"
+            }
+          ],
+          "explanation": "SOCSO: employee RM0.00, employer RM36.90. Second category (employment injury only): a foreign worker. The employer pays, the employee pays nothing to SOCSO. Table row: Row 34 (RM2,900.01 to RM3,000.00), second category. Source: PERKESO: Act 4 contribution rates (from 1 October 2024), in effect from 2024-10-01.\nSKBBK: employee RM22.15, employer RM0.00. SKBBK (Lindung 24 Jam) covers non-employment injury. The employee pays it alone, in both SOCSO categories. Table row: Row 34 (RM2,900.01 to RM3,000.00). Source: PERKESO: Act 4 contribution rates including SKBBK (SKBBK column), in effect from 2026-06-01.\nEIS: employee RM0.00, employer RM0.00. Foreign workers are not covered by EIS. Source: PERKESO: Act 800 (EIS) contribution rates, in effect from 2024-10-01.",
+          "disclaimer": "Not tax or legal advice, and not verified by KWSP, PERKESO or LHDN. Fixed monthly salaries only: overtime, commission, bonuses and arrears are not supported. Check results against the cited source."
+        }
+      }
+    ],
+    "finalAnswer": "Here are the computed contributions for a 30-year-old non-Malaysian foreign worker earning RM 3,000 in November 2026, with SKBBK coverage:\n\n### Contributions Breakdown:\n1. **SOCSO (PERKESO) Contributions:**\n   - **Employee Contribution:** RM 0.00\n   - **Employer Contribution:** RM 36.90\n   - **Source:** [PERKESO: Act 4 contribution rates (from 1 October 2024)](https://www.perkeso.gov.my/images/dokumen/151124-Rate%20Contribution%20ACT%204.pdf) (Effective from 2024-10-01)\n\n2. **SKBBK (Lindung 24 Jam) Contribution:**\n   - **Employee Contribution:** RM 22.15\n   - **Employer Contribution:** RM 0.00\n   - **Source:** [PERKESO: Act 4 contribution rates including SKBBK](https://www.perkeso.gov.my/images/lindung/lindung-24-jam/NewContributionRateIncludingSKBBK.pdf) (Effective from 2026-06-01)\n\n3. **EIS (Employment Insurance System) Contribution:**\n   - **Employee Contribution:** RM 0.00\n   - **Employer Contribution:** RM 0.00\n   - **Source:** [PERKESO: Act 800 (EIS) contribution rates](https://www.perkeso.gov.my/images/dokumen/151124-Rate%20Contribution%20ACT%20800.pdf) (Effective from 2024-10-01)\n\n### Total Contributions:\n- **Total Employee Contribution:** RM 22.15\n- **Total Employer Contribution:** RM 36.90\n\n### Summary:\n- **Total Contributions (Employee + Employer):** RM 59.05\n\n**Disclaimer:** These calculations are based on fixed monthly salaries only and do not constitute tax or legal advice. Please verify results against the cited sources.",
+    "expectation": {
+      "kind": "dimension",
+      "dimension": "completeness"
+    }
   }
 ]
