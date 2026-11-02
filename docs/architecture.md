@@ -54,7 +54,7 @@ malaysia-payroll-mcp/
 │   ├── grading.ts             # Layer 1 deterministic checks (incl. refusal retries) and judge JSON parser
 │   ├── scorecard.ts           # Aggregation, the CI gate and the Markdown scorecard
 │   ├── controls.ts            # Seeded bad answers: zod schema and the "judge must catch" rule
-│   ├── controls.json          # Four seeded bad answers the judge must catch on every live run
+│   ├── controls.json          # Five seeded bad answers the judge must catch on every live run
 │   ├── providers.ts           # Anthropic and OpenAI LLM client adapters
 │   ├── runner.ts              # Agent tool loop, judge calls with one retry, and scorecard writer
 │   └── run.ts                 # CLI entry point for running the eval suite
@@ -79,7 +79,7 @@ malaysia-payroll-mcp/
 | Build | plain `tsc`, no bundler. With TS 6 or later, add `"types": ["node"]` to tsconfig (the SDK's types reference `Buffer`). |
 | Lint and format | Biome |
 | Tests | Vitest with v8 coverage |
-| Agent eval | `evals/run.ts` over `InMemoryTransport`. CI runs the agent on OpenAI (`gpt-4o-mini`) and the judge on `gpt-4o`. The Anthropic adapter (`claude-haiku-4-5`) is tested against mocks only and hasn't run live (ADR 0004) |
+| Agent eval | `evals/run.ts` over `InMemoryTransport`. CI runs the agent and the judge on OpenAI `gpt-4o`. The Anthropic adapter (`claude-haiku-4-5`) is tested against mocks only and hasn't run live (ADR 0004) |
 | Hosting (planned, v1.1) | Cloudflare Workers. AWS Lambda may be tried later as a learning exercise. |
 
 ## Key design decisions
@@ -127,10 +127,10 @@ Resources: `payroll://tables/{kind}/{effectiveFrom}`, for example `payroll://tab
 | Generated tables up to date | `pnpm gen:tables:check` (fails on any changed, missing or stale generated file) | every PR | required |
 | Golden unit tests | Vitest | every PR, Node 24 and 26 | required, 100% coverage of `src/` (except `src/entry/`) and `evals/` (except `evals/run.ts`) |
 | MCP contract | Vitest plus `InMemoryTransport` client | every PR | required |
-| Agent eval | `evals/run.ts`, agent `gpt-4o-mini` and judge `gpt-4o` (`OPENAI_API_KEY`), temperature 0 (ADR 0004) | same-repo PRs touching `src/`, `evals/`, or dependencies (Dependabot PRs skipped), and manual `workflow_dispatch` runs | required: Layer 1 >= 32/34 standard cases, every refusal case passes, Layer 2 mean >= 4.0/5.0, 0 hallucinated citations, 0 judge errors, all 4 seeded controls caught |
+| Agent eval | `evals/run.ts`, agent and judge `gpt-4o` (`OPENAI_API_KEY`), temperature 0 (ADR 0004) | same-repo PRs touching `src/`, `evals/`, or dependencies (Dependabot PRs skipped), and manual `workflow_dispatch` runs | required: Layer 1 >= 32/34 standard cases, every refusal case passes, Layer 2 mean >= 4.0/5.0, 0 hallucinated citations, 0 judge errors, all 5 seeded controls caught |
 | Manual | MCP Inspector, Claude Desktop, Claude Code, and a manual eval run (`workflow_dispatch`) | before each tag | checklist |
 
-**Eval cost and key exposure.** Evals spend API credits, and fork PRs can't see secrets. So the eval job runs only on same-repo PRs (`pull_request` event, never `pull_request_target`) and on manual `workflow_dispatch` runs. Fork PRs and Dependabot PRs run unit tests only. It uses `OPENAI_API_KEY` (`gpt-4o-mini` for the agent, `gpt-4o` for the judge) at temperature 0, runs cases with bounded concurrency (5) and hard `max_tokens` limits, is skipped on PRs when `src/`, `evals/`, and dependency lockfiles are unchanged, and the API key has a monthly spend limit.
+**Eval cost and key exposure.** Evals spend API credits, and fork PRs can't see secrets. So the eval job runs only on same-repo PRs (`pull_request` event, never `pull_request_target`) and on manual `workflow_dispatch` runs. Fork PRs and Dependabot PRs run unit tests only. It uses `OPENAI_API_KEY` (`gpt-4o` for the agent and the judge, chosen over `gpt-4o-mini`, see ADR 0004; each run costs more than the mini model did) at temperature 0, runs cases with bounded concurrency (5) and hard `max_tokens` limits, is skipped on PRs when `src/`, `evals/`, and dependency lockfiles are unchanged, and the API key has a monthly spend limit.
 
 ## Release and infrastructure
 

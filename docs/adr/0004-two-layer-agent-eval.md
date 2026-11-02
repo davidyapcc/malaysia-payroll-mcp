@@ -8,11 +8,15 @@ We therefore evaluate every eval case in two layers, and both gate CI:
 
 ## Departure from the plan: the gate runs on OpenAI
 
-The plan called for the cheapest Claude model. The gate instead runs on OpenAI, because it is the only provider key the repository holds: `gpt-4o-mini` for the agent and `gpt-4o` for the judge. The Anthropic adapter (`claude-haiku-4-5`) is tested against mocks only and has not run live. Moving the gate to Claude is a follow-up for when an Anthropic key is available.
+The plan called for the cheapest Claude model. The gate instead runs on OpenAI, because it is the only provider key the repository holds: `gpt-4o` for both the agent and the judge. The Anthropic adapter (`claude-haiku-4-5`) is tested against mocks only and has not run live. Moving the gate to Claude is a follow-up for when an Anthropic key is available.
 
 ## Judge model
 
-The judge runs on `gpt-4o`, not `gpt-4o-mini`. In the first live run (commit 340cd03), `gpt-4o-mini` caught only 2 of the 4 seeded controls, missing the disclaimer and the wrong RM total. It also invented errors in its rationales (for example "RM 66.40 instead of RM 66.40"), and it scored the SOC-05 answer, which silently retried after the refusal, 5/5/5. The rubric says that answer must score 1 or 2. The agent stays on `gpt-4o-mini`, so the model under test is unchanged. The judge model is set by `EVAL_JUDGE_MODEL` in `.github/workflows/ci.yml`.
+The judge runs on `gpt-4o`, not `gpt-4o-mini`. In the first live run (commit 340cd03), `gpt-4o-mini` caught only 2 of the 4 seeded controls, missing the disclaimer and the wrong RM total. It also invented errors in its rationales (for example "RM 66.40 instead of RM 66.40"), and it scored the SOC-05 answer, which silently retried after the refusal, 5/5/5. The rubric says that answer must score 1 or 2. The agent model is set separately by `EVAL_AGENT_MODEL`, also in `.github/workflows/ci.yml`; see the next section.
+
+## Agent model
+
+The agent runs on `gpt-4o`, not `gpt-4o-mini`. In the live run at 340cd03, `gpt-4o-mini` retried after the SOC-05 refusal and gave RM figures without telling the user that the opt-out was refused. A pass on `gpt-4o` shows the refusal check works with a capable agent. It does not show that every cheap model behaves this way, and it is not evidence about models that were not run. Every eval run now costs more than it did on `gpt-4o-mini`.
 
 ## Gate
 
@@ -28,11 +32,11 @@ For a case with an `expectedError`, Layer 1 allows retries after the expected re
 
 ## Seeded controls
 
-`evals/controls.json` holds four deliberately bad answers, each with the tool output it contradicts: a made-up statute citation (the judge must flag a hallucinated citation), a missing disclaimer, a swapped payer, and a wrong RM total (for the last three, the judge must score the named dimension at or below 3). Each live run sends them through the real judge. If the judge passes any control, the gate fails and the Scorecard lists the control. Controls are not part of the 35 cases or the rubric mean. Their correctness is tested with a fake judge that passes everything (the gate fails) and one that catches everything (the gate passes).
+`evals/controls.json` holds five deliberately bad answers, each with the tool output it contradicts: a made-up statute citation (the judge must flag a hallucinated citation), a missing disclaimer, a swapped payer, a wrong RM total, and a silent SKBBK retry (the agent's refusal call is followed by figures and no refusal explanation). For the last four, the judge must score the named dimension at or below 3. Each live run sends them through the real judge. If the judge passes any control, the gate fails and the Scorecard lists the control. Controls are not part of the 35 cases or the rubric mean. Their correctness is tested with a fake judge that passes everything (the gate fails) and one that catches everything (the gate passes).
 
 ## Consequences
 
-- Each eval case makes up to four LLM calls at temperature 0: up to three agent tool rounds (bounded by `MAX_TOOL_ROUNDS`), plus one judge call and one retry on failure. The four seeded controls add four judge calls per run.
+- Each eval case makes up to four LLM calls at temperature 0: up to three agent tool rounds (bounded by `MAX_TOOL_ROUNDS`), plus one judge call and one retry on failure. The five seeded controls add five judge calls per run.
 - The Anthropic and OpenAI adapters share one `LlmClient` interface. Only OpenAI runs in CI.
 - Because the judge may be wrong, its verdicts are checked by the seeded controls on every run. A judge that stops catching them fails CI.
 - The layer-1 threshold tolerates prose variance without letting a refusal case slip through.
