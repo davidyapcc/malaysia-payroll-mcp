@@ -51,9 +51,12 @@ malaysia-payroll-mcp/
 │   └── *.test.ts
 ├── evals/
 │   ├── cases.jsonl            # 35 prompts paired 1:1 with test/golden/cases.json
-│   ├── grading.ts             # Layer 1 deterministic checks, Layer 2 rubric parser and scorecard
+│   ├── grading.ts             # Layer 1 deterministic checks (incl. refusal retries) and judge JSON parser
+│   ├── scorecard.ts           # Aggregation, the CI gate and the Markdown scorecard
+│   ├── controls.ts            # Seeded bad answers: zod schema and the "judge must catch" rule
+│   ├── controls.json          # Four seeded bad answers the judge must catch on every live run
 │   ├── providers.ts           # Anthropic and OpenAI LLM client adapters
-│   ├── runner.ts              # Agent tool loop, judge orchestration, and scorecard writer
+│   ├── runner.ts              # Agent tool loop, judge calls with one retry, and scorecard writer
 │   └── run.ts                 # CLI entry point for running the eval suite
 ├── server.json                # planned: MCP Registry manifest
 └── .github/
@@ -76,7 +79,7 @@ malaysia-payroll-mcp/
 | Build | plain `tsc`, no bundler. With TS 6 or later, add `"types": ["node"]` to tsconfig (the SDK's types reference `Buffer`). |
 | Lint and format | Biome |
 | Tests | Vitest with v8 coverage |
-| Agent eval | `evals/run.ts`: Anthropic (`claude-haiku-4-5`) or OpenAI (`gpt-4o-mini`) over `InMemoryTransport` (ADR 0004) |
+| Agent eval | `evals/run.ts` over `InMemoryTransport`. CI runs it on OpenAI (`gpt-4o-mini`). The Anthropic adapter (`claude-haiku-4-5`) is tested against mocks only and hasn't run live (ADR 0004) |
 | Hosting (planned, v1.1) | Cloudflare Workers. AWS Lambda may be tried later as a learning exercise. |
 
 ## Key design decisions
@@ -124,10 +127,10 @@ Resources: `payroll://tables/{kind}/{effectiveFrom}`, for example `payroll://tab
 | Generated tables up to date | `pnpm gen:tables:check` (fails on any changed, missing or stale generated file) | every PR | required |
 | Golden unit tests | Vitest | every PR, Node 24 and 26 | required, 100% coverage of `src/` (except `src/entry/`) and `evals/` (except `evals/run.ts`) |
 | MCP contract | Vitest plus `InMemoryTransport` client | every PR | required |
-| Agent eval | `evals/run.ts`, `claude-haiku-4-5` (`ANTHROPIC_API_KEY`) or `gpt-4o-mini` (`OPENAI_API_KEY`), temperature 0 (ADR 0004) | same-repo PRs and `main` pushes touching `src/`, `evals/`, or dependencies | required: Layer 1 >= 33/35, Layer 2 mean >= 4.0/5.0, 0 hallucinated citations |
-| Manual | MCP Inspector, Claude Desktop, Claude Code | before each tag | checklist |
+| Agent eval | `evals/run.ts`, `gpt-4o-mini` (`OPENAI_API_KEY`), temperature 0 (ADR 0004) | same-repo PRs touching `src/`, `evals/`, or dependencies (Dependabot PRs skipped), and manual `workflow_dispatch` runs | required: Layer 1 >= 32/34 standard cases, every refusal case passes, Layer 2 mean >= 4.0/5.0, 0 hallucinated citations, 0 judge errors, all 4 seeded controls caught |
+| Manual | MCP Inspector, Claude Desktop, Claude Code, and a manual eval run (`workflow_dispatch`) | before each tag | checklist |
 
-**Eval cost and key exposure.** Evals spend API credits, and fork PRs can't see secrets. So the eval job runs only on same-repo PRs (`pull_request` event, never `pull_request_target`), and fork PRs run unit tests only. It uses `ANTHROPIC_API_KEY` (`claude-haiku-4-5`) or `OPENAI_API_KEY` (`gpt-4o-mini`) at temperature 0, runs cases with bounded concurrency (5) and hard `max_tokens` limits, is skipped when `src/`, `evals/`, and dependency lockfiles are unchanged, and the API key has a monthly spend limit.
+**Eval cost and key exposure.** Evals spend API credits, and fork PRs can't see secrets. So the eval job runs only on same-repo PRs (`pull_request` event, never `pull_request_target`) and on manual `workflow_dispatch` runs. Fork PRs and Dependabot PRs run unit tests only. It uses `OPENAI_API_KEY` (`gpt-4o-mini` for the agent and the judge) at temperature 0, runs cases with bounded concurrency (5) and hard `max_tokens` limits, is skipped on PRs when `src/`, `evals/`, and dependency lockfiles are unchanged, and the API key has a monthly spend limit.
 
 ## Release and infrastructure
 
@@ -137,7 +140,7 @@ Releases are tagged on GitHub but not published anywhere. The publishing pipelin
 - **Publishing.** Pushing a version tag (a bare number such as `0.2.0`, no `v` prefix) runs `publish.yml`. It publishes to npm through trusted publishing (OIDC, needs `id-token: write`, provenance is automatic), then to the MCP Registry with `mcp-publisher login github-oidc`. No npm token is stored. The first npm publish is probably manual, so trusted publishing can be configured on an existing package. Publish runs on Node 24.
 - **Registry identity.** `server.json` `name` and `package.json` `mcpName` are both `io.github.davidyapcc/malaysia-payroll-mcp`. Bump the version in both files. The Registry is still in preview and may reset, so don't treat the listing as permanent.
 - **Distribution.** v1.0 ships over stdio only (`npx -y malaysia-payroll-mcp`). No MCPB bundle. v1.1 adds the Cloudflare Workers endpoint, which works as an authless custom connector in claude.ai (paid plans).
-- **Dependencies.** Dependabot, weekly, minor and patch updates grouped into one PR. CI and the eval gate decide whether it merges.
+- **Dependencies.** Dependabot, weekly, minor and patch updates grouped into one PR. CI alone decides whether it merges. Dependabot PRs skip the eval job, because they can't read repo secrets, and a skipped job reports as passing.
 
 ## Open decisions
 
