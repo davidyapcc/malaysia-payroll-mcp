@@ -86,6 +86,8 @@ jobs:
         env:
           # OpenAI is the only key the repo holds, so the gate runs on it (ADR 0004).
           EVAL_PROVIDER: openai
+          # The judge runs on gpt-4o: gpt-4o-mini missed 2 of 4 seeded controls and scored a silent-retry answer 5/5/5 (ADR 0004).
+          EVAL_JUDGE_MODEL: gpt-4o
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: pnpm eval
       - name: Upload eval scorecard
