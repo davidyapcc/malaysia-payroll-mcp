@@ -99,7 +99,7 @@ export function registerMtdTool(server: McpServer): void {
     {
       title: "Calculate MTD (PCB) income tax deduction",
       description:
-        "Works out the monthly tax deduction (MTD, also called PCB) for one employee in Malaysia. For a tax resident it uses LHDN's computerised formula, from the schedule in effect for the pay period, and shows the working; for a non-resident it applies the flat 30%. Fixed monthly salaries and standard reliefs only (individual, spouse, children, EPF, plus a TP1 total); no bonuses or zakat.",
+        "Works out the monthly tax deduction (MTD, also called PCB) for one employee in Malaysia. For a tax resident it uses LHDN's computerised formula, from the schedule in effect for the pay period, and shows the working; for a non-resident it applies the flat 30%. Fixed monthly salaries and standard reliefs only (individual, spouse, children, EPF, plus a TP1 total); no bonuses or zakat. Include the result's disclaimer in the answer to the user.",
       inputSchema,
       outputSchema,
       annotations: { readOnlyHint: true, openWorldHint: false },

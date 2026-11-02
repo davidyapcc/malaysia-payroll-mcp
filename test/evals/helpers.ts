@@ -136,6 +136,7 @@ const PASSING_LAYER1: Layer1Result = {
   hasMatchingArgs: true,
   hasMatchingToolOutput: true,
   hasValidProse: true,
+  hasDisclaimer: true,
   missingAmounts: [],
   failureReasons: [],
 };

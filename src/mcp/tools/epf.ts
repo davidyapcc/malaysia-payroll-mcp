@@ -34,7 +34,7 @@ export function registerEpfTool(server: McpServer): void {
     {
       title: "Calculate EPF (KWSP) contributions",
       description:
-        "Works out the monthly EPF (KWSP) employee and employer contributions for one employee in Malaysia, from the EPF Third Schedule in effect for the pay period, and cites the band used. Fixed monthly salaries only.",
+        "Works out the monthly EPF (KWSP) employee and employer contributions for one employee in Malaysia, from the EPF Third Schedule in effect for the pay period, and cites the band used. Fixed monthly salaries only. Include the result's disclaimer in the answer to the user.",
       inputSchema,
       outputSchema,
       annotations: { readOnlyHint: true, openWorldHint: false },

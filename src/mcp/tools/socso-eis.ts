@@ -45,7 +45,7 @@ export function registerSocsoEisTool(server: McpServer): void {
     {
       title: "Calculate SOCSO, SKBBK and EIS contributions",
       description:
-        "Works out the monthly SOCSO (PERKESO, Act 4), SKBBK (Lindung 24 Jam) and EIS (Act 800) contributions for one employee in Malaysia, from the PERKESO tables in effect for the pay period, and cites the row used for each. Fixed monthly salaries only.",
+        "Works out the monthly SOCSO (PERKESO, Act 4), SKBBK (Lindung 24 Jam) and EIS (Act 800) contributions for one employee in Malaysia, from the PERKESO tables in effect for the pay period, and cites the row used for each. Fixed monthly salaries only. Include the result's disclaimer in the answer to the user.",
       inputSchema,
       outputSchema,
       annotations: { readOnlyHint: true, openWorldHint: false },

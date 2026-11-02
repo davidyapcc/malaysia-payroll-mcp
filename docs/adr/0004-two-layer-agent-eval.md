@@ -34,11 +34,11 @@ For a case with an `expectedError`, Layer 1 allows retries after the expected re
 
 ## Seeded controls
 
-`evals/controls.json` holds five deliberately bad answers, each with the tool output it contradicts: a made-up statute citation (the judge must flag a hallucinated citation), a missing disclaimer, a swapped payer, a wrong RM total, and a silent SKBBK retry (the agent's refusal call is followed by figures and no refusal explanation). For the last four, the judge must score the named dimension at or below 3. Each live run sends them through the real judge. If the judge passes any control, the gate fails and the Scorecard lists the control. Controls are not part of the 35 cases or the rubric mean. Their correctness is tested with a fake judge that passes everything (the gate fails) and one that catches everything (the gate passes).
+`evals/controls.json` holds six deliberately bad answers, each with the tool output it contradicts: a made-up statute citation (the judge must flag a hallucinated citation), two answers missing the disclaimer (one terse, one well structured with sources, so polish cannot hide the gap), a swapped payer, a wrong RM total, and a silent SKBBK retry (the agent's refusal call is followed by figures and no refusal explanation). For the last five, the judge must score the named dimension at or below 3. Each live run sends them through the real judge. If the judge passes any control, the gate fails and the Scorecard lists the control. Controls are not part of the 35 cases or the rubric mean. Their correctness is tested with a fake judge that passes everything (the gate fails) and one that catches everything (the gate passes).
 
 ## Consequences
 
-- Each eval case makes up to four LLM calls at temperature 0: up to three agent tool rounds (bounded by `MAX_TOOL_ROUNDS`), plus one judge call and one retry on failure. The five seeded controls add five judge calls per run.
+- Each eval case makes up to four LLM calls at temperature 0: up to three agent tool rounds (bounded by `MAX_TOOL_ROUNDS`), plus one judge call and one retry on failure. The six seeded controls add six judge calls per run.
 - The Anthropic and OpenAI adapters share one `LlmClient` interface. Only OpenAI runs in CI.
 - Because the judge may be wrong, its verdicts are checked by the seeded controls on every run. A judge that stops catching them fails CI.
 - The layer-1 threshold tolerates prose variance without letting a refusal case slip through.

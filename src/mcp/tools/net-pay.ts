@@ -76,7 +76,7 @@ export function registerNetPayTool(server: McpServer): void {
     {
       title: "Calculate net pay (payslip)",
       description:
-        "Works out one month's payslip for one employee in Malaysia: EPF, SOCSO, SKBBK, EIS and MTD (PCB) deductions, net pay, and the employer's contributions and total cost. Runs the same calculations as calculate_epf, calculate_socso_eis and calculate_mtd, feeding the employee EPF into MTD, and cites the source of every line. For a non_malaysian employee, say whether they are tax resident (taxResident). Fixed monthly salaries and standard reliefs only; no bonuses or zakat.",
+        "Works out one month's payslip for one employee in Malaysia: EPF, SOCSO, SKBBK, EIS and MTD (PCB) deductions, net pay, and the employer's contributions and total cost. Runs the same calculations as calculate_epf, calculate_socso_eis and calculate_mtd, feeding the employee EPF into MTD, and cites the source of every line. For a non_malaysian employee, say whether they are tax resident (taxResident). Fixed monthly salaries and standard reliefs only; no bonuses or zakat. Include the result's disclaimer in the answer to the user.",
       inputSchema,
       outputSchema,
       annotations: { readOnlyHint: true, openWorldHint: false },

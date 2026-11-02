@@ -356,9 +356,25 @@ describe("Layer 1: argument canonicalization and number matching", () => {
           structuredContent: { part: "A" },
         },
       ],
-      "Done.",
+      "Done. Not tax advice; fixed monthly salaries only.",
     );
     expect(customLayer1.isPassed).toBe(true);
+
+    const withoutDisclaimer = evaluateLayer1(
+      noExpectedCase,
+      [
+        {
+          name: "calculate_epf",
+          arguments: epf02.expectedInput,
+          isError: false,
+          textContent: "{}",
+          structuredContent: { part: "A" },
+        },
+      ],
+      "Done.",
+    );
+    expect(withoutDisclaimer.isPassed).toBe(false);
+    expect(withoutDisclaimer.hasDisclaimer).toBe(false);
 
     expect(matchesExpectedObject(null, { a: 1 })).toBe(false);
     expect(matchesExpectedObject({ nested: { a: 1 } }, { nested: { a: 2 } })).toBe(false);

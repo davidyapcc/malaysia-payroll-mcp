@@ -37,11 +37,12 @@ const CLEAN_SCORE: RubricScore = {
 };
 
 describe("seeded controls file", () => {
-  it("loads the committed controls file with five validated controls", () => {
+  it("loads the committed controls file with six validated controls", () => {
     const controls = loadSeededControls();
     expect(controls.map((c) => c.id)).toEqual([
       "CTRL-INVENTED-CITATION",
       "CTRL-NO-DISCLAIMER",
+      "CTRL-POLISHED-NO-DISCLAIMER",
       "CTRL-SWAPPED-PAYER",
       "CTRL-WRONG-AMOUNT",
       "CTRL-SILENT-RETRY",

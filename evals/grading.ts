@@ -1,5 +1,6 @@
 // Pure grading, canonicalization and scorecard formatting for the two-layer agent eval (ADR 0004).
 import * as z from "zod";
+import { hasDisclaimer } from "./disclaimer.ts";
 
 export type ToolName =
   | "calculate_epf"
@@ -71,6 +72,8 @@ export interface Layer1Result {
   readonly hasMatchingArgs: boolean;
   readonly hasMatchingToolOutput: boolean;
   readonly hasValidProse: boolean;
+  /** Whether the final answer states the disclaimer, whatever the case. */
+  readonly hasDisclaimer: boolean;
   readonly missingAmounts: readonly number[];
   readonly failureReasons: readonly string[];
 }
@@ -505,6 +508,7 @@ export function agentErrorLayer1(message: string): Layer1Result {
     hasMatchingArgs: false,
     hasMatchingToolOutput: false,
     hasValidProse: false,
+    hasDisclaimer: false,
     missingAmounts: [],
     failureReasons: [`Agent error: ${message}`],
   };
@@ -549,12 +553,19 @@ export function evaluateLayer1(
   const argsCheck = checkArgsMatch(evalCase, matchingCall);
   const toolOutputCheck = checkToolOutputMatch(evalCase, matchingCall);
   const proseCheck = checkProseMatch(evalCase, finalAnswer, toolCalls);
+  const disclaimerPresent = hasDisclaimer(finalAnswer);
+  // Refusal cases get no tool output to relay, so only standard cases must carry the disclaimer.
+  const hasRequiredDisclaimer = isMustPassCase(evalCase) || disclaimerPresent;
+  const disclaimerReasons = hasRequiredDisclaimer
+    ? []
+    : ["Final answer omits the fixed-salary and not-tax-advice disclaimer the tool returned."];
 
   const failureReasons = [
     ...toolErrors,
     ...argsCheck.failureReasons,
     ...toolOutputCheck.failureReasons,
     ...proseCheck.failureReasons,
+    ...disclaimerReasons,
   ];
 
   return {
@@ -562,11 +573,13 @@ export function evaluateLayer1(
       hasExpectedTool &&
       argsCheck.hasMatchingArgs &&
       toolOutputCheck.hasMatchingToolOutput &&
-      proseCheck.hasValidProse,
+      proseCheck.hasValidProse &&
+      hasRequiredDisclaimer,
     hasExpectedTool,
     hasMatchingArgs: argsCheck.hasMatchingArgs,
     hasMatchingToolOutput: toolOutputCheck.hasMatchingToolOutput,
     hasValidProse: proseCheck.hasValidProse,
+    hasDisclaimer: disclaimerPresent,
     missingAmounts: proseCheck.missingAmounts,
     failureReasons,
   };
