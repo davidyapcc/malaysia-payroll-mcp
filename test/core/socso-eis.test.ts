@@ -104,6 +104,14 @@ describe("calculateSocsoEis", () => {
       expect(foreign.citations[2]?.rule).toContain("Foreign workers");
     });
 
+    it("refuses a foreign worker's SKBBK opt-out with guidance the agent can act on", () => {
+      const message =
+        "Foreign workers can't opt out of SKBBK: the opt-out is for local employees only. Tell the user the opt-out isn't available. Any figures you then give must be for skbbkStatus covered, and must say so.";
+      expect(() =>
+        calculateSocsoEis({ ...base, citizenship: "non_malaysian", skbbkStatus: "opted_out" }),
+      ).toThrow(new PayrollInputError(message));
+    });
+
     it("needs eisPayableBefore57 from 57 to 59", () => {
       for (const age of [57, 59]) {
         expect(() => calculateSocsoEis({ ...base, age })).toThrow(
