@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -45,3 +46,57 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:coverage
+
+  eval:
+    name: Agent eval (Layer 1 + Layer 2 rubric)
+    runs-on: ubuntu-latest
+    needs: [check]
+    # Same-repo PRs (not Dependabot, which has no secrets) and manual runs only. Skipped jobs report
+    # as passing, so required checks are not blocked by Dependabot PRs.
+    if: >-
+      (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.user.login != 'dependabot[bot]') ||
+      github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: changes
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" | grep -Eq '^(src/|evals/|test/golden/cases\.json$|package\.json$|pnpm-lock\.yaml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: pnpm/action-setup@v6
+        if: steps.changes.outputs.run == 'true'
+      - uses: actions/setup-node@v7
+        if: steps.changes.outputs.run == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+      - if: steps.changes.outputs.run == 'true'
+        run: pnpm install --frozen-lockfile
+      - name: Run two-layer agent eval
+        id: run_eval
+        if: steps.changes.outputs.run == 'true'
+        env:
+          # OpenAI is the only key the repo holds, so the gate runs on it (ADR 0004).
+          EVAL_PROVIDER: openai
+          # The agent runs on gpt-4o: gpt-4o-mini retried after the SOC-05 refusal and gave figures without telling the user (ADR 0004).
+          EVAL_AGENT_MODEL: gpt-4o
+          # The judge runs on gpt-4o: gpt-4o-mini missed 2 of 4 seeded controls and scored a silent-retry answer 5/5/5 (ADR 0004).
+          EVAL_JUDGE_MODEL: gpt-4o
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: pnpm eval
+      - name: Upload eval scorecard
+        if: always() && steps.changes.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-scorecard
+          path: |
+            evals/results/scorecard.json
+            evals/results/scorecard.md

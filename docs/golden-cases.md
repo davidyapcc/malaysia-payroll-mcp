@@ -94,6 +94,17 @@ How the EPF cap runs through the year for MTD-01 and MTD-05:
 | NP-04 | Same as NP-01, but a foreign worker (non-Malaysian, EPF from 1 Aug 1998), `taxResident: true` | **net 4,738.85** | EPF 100 (Part F, 2%) + SOCSO 0 (second category) + SKBBK 37.15 + EIS 0 (not covered) + MTD 124.00. Employer: EPF 100 + SOCSO 61.90 | **Foreign worker.** EPF relief 1,200 for the year, P 49,800.00, tax 1,488.00. For a non-Malaysian, `taxResident` is required: it is never assumed | ✅ |
 | NP-05 | Same as NP-04, but `taxResident: false` | **net 3,362.85** | EPF 100 + SKBBK 37.15 + MTD 1,500.00 (30% of 5,000.00). Employer: EPF 100 + SOCSO 61.90 | **Non-resident foreign worker.** The flat rate makes MTD 9× the resident figure, which is why the input is required | ✅ |
 
+### Employer figures for net pay, worked by hand
+
+These employer figures were worked from the tables in `data/`, not copied from the calculator or the eval output. The `employerCost` and NP-02 employer rows were added to `test/golden/cases.json` on this basis, and the calculator agrees with each one.
+
+- **NP-02** (Malaysian, 30, wages 5,000.00, opted out of SKBBK). EPF Part A, row for 4,980.01 to 5,000.00: employer 650.00. SOCSO row 54 (4,900.01 to 5,000.00), first category: employer 86.65. EIS row 54: employer 9.90. SKBBK has no employer share in its table. Employer total 650.00 + 86.65 + 9.90 = **746.55**. Employer cost 5,000.00 + 746.55 = **5,746.55**.
+- **NP-03** (Malaysian, 62). EPF Part E, row 4,980.01 to 5,000.00: employer 200.00 (Part E is for 60 and over; the employee pays nothing). SOCSO row 54, second category: employer 61.90. EIS is not covered from 60, so 0.00. Employer total 200.00 + 61.90 + 0.00 = **261.90**. Employer cost 5,000.00 + 261.90 = **5,261.90**.
+- **NP-04** (non-Malaysian, EPF from 1 Aug 1998, tax resident). EPF Part F is a flat 2% of wages, with no table, and the employer's share is 2% of 5,000.00 = **100.00** (each share is rounded up to the next ringgit, and this one is exact). SOCSO row 54, second category: employer 61.90. EIS is not covered for foreign workers, so 0.00. Employer total 100.00 + 61.90 + 0.00 = **161.90**. Employer cost 5,000.00 + 161.90 = **5,161.90**.
+- **NP-05** (non-Malaysian, non-resident). The employer figures are the same as NP-04: EPF 100.00, SOCSO 61.90, EIS 0.00. Employer total **161.90**. Employer cost **5,161.90**.
+
+The employee-side figures in the table above are unchanged, and the employer rows for NP-03 to NP-05 already matched the tables before this change.
+
 Each line comes from the calculator for it, so the components are the cases above (EPF-, SOC- and MTD- rows) and the tables they cite. Net pay is the monthly salary minus the five employee lines. The tool feeds the employee EPF share into MTD, so `epfEmployee` is never an input.
 
 ## Resolved questions (Oct 23, 2026)

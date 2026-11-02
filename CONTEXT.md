@@ -69,3 +69,15 @@ _Avoid_: reference, source (on its own)
 **Golden case**:
 A hand-worked input and expected output, taken from an official table or worked example, that the calculations must reproduce exactly.
 _Avoid_: fixture, sample, test vector
+
+**Eval case**:
+A natural-language payroll question paired with one golden case, used to check that an agent selects the right tool, extracts the right inputs and reports the statutory numbers and citations accurately.
+_Avoid_: test prompt, scenario, benchmark
+
+**Rubric**:
+The grading criteria an independent judge applies to an agent's natural-language payroll answer: citation faithfulness, completeness and clarity.
+_Avoid_: prompt score, prose check
+
+**Scorecard**:
+The summary report of an eval run, combining deterministic tool-use pass rates and rubric scores across all eval cases.
+_Avoid_: test report, eval log

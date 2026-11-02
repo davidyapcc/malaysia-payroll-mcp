@@ -75,7 +75,7 @@ export function calculateSocsoEis(
   const foreign = input.citizenship === "non_malaysian";
   if (foreign && skbbkStatus === "opted_out") {
     throw new PayrollInputError(
-      "Foreign workers can't opt out of SKBBK: the opt-out is for local employees only. Use skbbkStatus covered.",
+      "Foreign workers can't opt out of SKBBK: the opt-out is for local employees only. Tell the user the opt-out isn't available. Any figures you then give must be for skbbkStatus covered, and must say so.",
     );
   }
   const { age } = input;
