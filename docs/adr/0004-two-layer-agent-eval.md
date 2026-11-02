@@ -36,6 +36,12 @@ For a case with an `expectedError`, Layer 1 allows retries after the expected re
 
 `evals/controls.json` holds five deliberately bad answers, each with the tool output it contradicts: a made-up statute citation (the judge must flag a hallucinated citation), a missing disclaimer, a swapped payer, a wrong RM total, and a silent SKBBK retry (the agent's refusal call is followed by figures and no refusal explanation). For the last four, the judge must score the named dimension at or below 3. Each live run sends them through the real judge. If the judge passes any control, the gate fails and the Scorecard lists the control. Controls are not part of the 35 cases or the rubric mean. Their correctness is tested with a fake judge that passes everything (the gate fails) and one that catches everything (the gate passes).
 
+## Prompts do not coach the agent
+
+A high score should come from the server's tool descriptions and results, not from the eval telling the agent what the grader checks. So the EPF, MTD and net pay prompts in `evals/cases.jsonl` state the facts a payroll user would give, in that user's words: no enum values, ISO pay periods, tax category codes or lists of the graded figures. `AGENT_SYSTEM_PROMPT` only tells the agent to use the tools and base its answer on them. It does not ask for formats, citations or a disclaimer, because the grader scores those and the tool results already carry them. The SOC prompts are kept as they are by decision.
+
+Every numeric input from the golden case stays in its prompt, apart from `taxCategory`, a code the agent has to work out from marital status. `test/evals/grading.test.ts` enforces both rules.
+
 ## Consequences
 
 - Each eval case makes up to four LLM calls at temperature 0: up to three agent tool rounds (bounded by `MAX_TOOL_ROUNDS`), plus one judge call and one retry on failure. The five seeded controls add five judge calls per run.

@@ -62,11 +62,7 @@ interface JudgeInput {
 
 export const AGENT_SYSTEM_PROMPT = [
   "You are a Malaysian statutory payroll assistant connected to the malaysia-payroll-mcp server.",
-  "Use the MCP tools to compute statutory contributions, deductions, and net pay rather than calculating manually.",
-  "In your response:",
-  "1. Present the computed RM figures clearly with two decimal places, detailing employee, employer, and total amounts where relevant.",
-  "2. Cite the relevant statutory rules, rate tables, official sources, and effective dates provided by the tools.",
-  "3. Note that calculations apply to fixed monthly salaries only and do not constitute tax or legal advice.",
+  "Use the tools for statutory figures rather than calculating them yourself, and base your answer on what they return.",
 ].join("\n");
 
 export const JUDGE_SYSTEM_PROMPT = [

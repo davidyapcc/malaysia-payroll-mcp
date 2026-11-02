@@ -48,6 +48,36 @@ describe("evals/cases.jsonl completeness and validation", () => {
     expect(evalCases.map((s) => s.id).sort()).toEqual([...goldenIds].sort());
   });
 
+  it("states every numeric input in the prompt, except the tax category code", () => {
+    const numbersIn = (text: string) =>
+      (text.replaceAll(",", "").match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
+    const numericInputs = (input: Record<string, unknown>): number[] =>
+      Object.entries(input).flatMap(([key, value]) => {
+        if (key === "taxCategory") return [];
+        if (typeof value === "number") return [value];
+        return isPlainObject(value) ? numericInputs(value) : [];
+      });
+
+    const missing = evalCases.flatMap((evalCase) =>
+      numericInputs(evalCase.expectedInput)
+        .filter((value) => !numbersIn(evalCase.prompt).includes(value))
+        .map((value) => `${evalCase.id}: ${value}`),
+    );
+
+    expect(missing).toEqual([]);
+  });
+
+  it("keeps grader hints out of the EPF, MTD and net pay prompts", () => {
+    const graderHints =
+      /\btax category\b|\b\d{4}-\d{2}\b|same salary|\bonly\b|employee, employer and total|\bnon-Malaysian\b|statutory deductions|employer contributions|year-to-date|qualifying/i;
+    const coached = evalCases
+      .filter((evalCase) => evalCase.expectedTool !== "calculate_socso_eis")
+      .filter((evalCase) => graderHints.test(evalCase.prompt))
+      .map((evalCase) => evalCase.id);
+
+    expect(coached).toEqual([]);
+  });
+
   it("rejects malformed JSONL lines, invalid golden files, duplicate IDs, unknown IDs and missing golden cases", () => {
     expect(() => parseCasesJsonl("[]")).toThrow("cases.jsonl:1");
     expect(() => parseCasesJsonl('{"id":"","prompt":"hi"}')).toThrow("cases.jsonl:1");
