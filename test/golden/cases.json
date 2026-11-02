@@ -597,7 +597,14 @@
           "mtd": 110,
           "total": 694.65
         },
-        "netPay": 4305.35
+        "netPay": 4305.35,
+        "employerContributions": {
+          "epf": 650,
+          "socso": 86.65,
+          "eis": 9.9,
+          "total": 746.55
+        },
+        "employerCost": 5746.55
       }
     },
     {
@@ -633,7 +640,8 @@
           "mtdYearToDate": {
             "mtd": 1341.7
           }
-        }
+        },
+        "employerCost": 5261.9
       }
     },
     {
@@ -667,7 +675,8 @@
           "epfPart": "F",
           "socsoCategory": "second",
           "eisCovered": false
-        }
+        },
+        "employerCost": 5161.9
       }
     },
     {
@@ -701,7 +710,8 @@
           "epfPart": "F",
           "taxResident": false,
           "taxCategory": null
-        }
+        },
+        "employerCost": 5161.9
       }
     }
   ]
