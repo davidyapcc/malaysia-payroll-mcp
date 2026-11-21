@@ -81,3 +81,7 @@ _Avoid_: prompt score, prose check
 **Scorecard**:
 The summary report of an eval run, combining deterministic tool-use pass rates and rubric scores across all eval cases.
 _Avoid_: test report, eval log
+
+**Model comparison**:
+Repeated eval runs for each of several agent models, all graded by one fixed judge, summarised side by side with the hardware they ran on.
+_Avoid_: benchmark, leaderboard

@@ -85,6 +85,7 @@ export function createOpenAiClient(
     headers: { Authorization: `Bearer ${apiKey}` },
     maxTokensField: "max_completion_tokens",
     providerLabel: "OpenAI",
+    shouldStripReasoning: false,
     fetchFn,
   });
 }
@@ -103,6 +104,8 @@ export function createOllamaClient(
     // Ollama's compatibility layer documents max_tokens, not max_completion_tokens.
     maxTokensField: "max_tokens",
     providerLabel: "Ollama",
+    // Some open-weight models (Qwen3, DeepSeek-R1) put their reasoning in the answer text.
+    shouldStripReasoning: true,
     fetchFn,
   });
 }
@@ -120,6 +123,7 @@ function createChatCompletionsClient(config: {
   readonly headers: Readonly<Record<string, string>>;
   readonly maxTokensField: "max_tokens" | "max_completion_tokens";
   readonly providerLabel: string;
+  readonly shouldStripReasoning: boolean;
   readonly fetchFn: typeof fetch;
 }): LlmClient {
   const fetchFn = config.fetchFn;
@@ -157,7 +161,11 @@ function createChatCompletionsClient(config: {
             `${config.providerLabel} API error (${response.status}): ${await response.text()}`,
           );
         }
-        return parseOpenAiResponse(await response.json(), config.providerLabel);
+        return parseOpenAiResponse(
+          await response.json(),
+          config.providerLabel,
+          config.shouldStripReasoning,
+        );
       },
     },
   };
@@ -235,7 +243,11 @@ export function stripReasoning(text: string): string {
   return text.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim();
 }
 
-function parseOpenAiResponse(rawJson: unknown, providerLabel: string): MessagesResponseLike {
+function parseOpenAiResponse(
+  rawJson: unknown,
+  providerLabel: string,
+  shouldStripReasoning: boolean,
+): MessagesResponseLike {
   const parsed = openAiResponseSchema.safeParse(rawJson);
   if (!parsed.success) {
     throw new Error(`Invalid ${providerLabel} response shape: ${parsed.error.message}`);
@@ -243,7 +255,8 @@ function parseOpenAiResponse(rawJson: unknown, providerLabel: string): MessagesR
 
   const choice = parsed.data.choices[0];
   const message = choice?.message;
-  const answerText = typeof message?.content === "string" ? stripReasoning(message.content) : "";
+  const rawText = typeof message?.content === "string" ? message.content : "";
+  const answerText = shouldStripReasoning ? stripReasoning(rawText) : rawText;
   const textBlocks: ContentBlockLike[] =
     answerText.length > 0 ? [{ type: "text", text: answerText }] : [];
   const toolUseBlocks: ContentBlockLike[] = (message?.tool_calls ?? []).map((tc) => ({

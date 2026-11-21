@@ -8,7 +8,7 @@ Versioning rules are in [docs/architecture.md](docs/architecture.md#release-and-
 
 - Agent eval on local open-weight models through Ollama (`EVAL_PROVIDER=ollama`, `pnpm eval:local`), with no API key or cost ([ADR 0005](docs/adr/0005-local-models-in-the-agent-eval.md)).
 - `EVAL_JUDGE_PROVIDER` to run the judge on a different provider from the agent, and `OPENAI_BASE_URL` for OpenAI-compatible endpoints.
-- `pnpm eval:bench`: repeated runs per model, written up as a comparison table.
+- `pnpm eval:compare`: a model comparison, with repeated runs per model graded by one fixed judge and the hardware they ran on.
 
 ## 0.2.0 (2026-11-01)
 

@@ -396,6 +396,14 @@ describe("Providers and concurrency validation", () => {
     expect(result.content).toEqual([]);
   });
 
+  it("leaves OpenAI answers as they are, <think> tags included", async () => {
+    const { fetchFn } = captureFetch({
+      choices: [{ finish_reason: "stop", message: { content: "<think>x</think> Answer" } }],
+    });
+    const result = await createOpenAiClient("sk-test", fetchFn).messages.create(BASIC_PARAMS);
+    expect(result.content).toEqual([{ type: "text", text: "<think>x</think> Answer" }]);
+  });
+
   it("labels Ollama HTTP errors with the provider name", async () => {
     const client = createOllamaClient(
       DEFAULT_OLLAMA_BASE_URL,

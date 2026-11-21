@@ -57,8 +57,8 @@ malaysia-payroll-mcp/
 │   ├── controls.json          # Five seeded bad answers the judge must catch on every live run
 │   ├── providers.ts           # Anthropic, OpenAI and Ollama LLM client adapters
 │   ├── runner.ts              # Agent tool loop, judge calls with one retry, and scorecard writer
-│   ├── benchmark.ts           # Aggregates repeated runs per model into a comparison table
-│   ├── bench.ts               # CLI for `pnpm eval:bench`
+│   ├── comparison.ts          # Model comparison: repeated runs per model, one judge, one table
+│   ├── compare.ts             # Entry point for `pnpm eval:compare`
 │   └── run.ts                 # CLI entry point for running the eval suite
 ├── server.json                # planned: MCP Registry manifest
 └── .github/
@@ -127,7 +127,7 @@ Resources: `payroll://tables/{kind}/{effectiveFrom}`, for example `payroll://tab
 | --- | --- | --- | --- |
 | Lint, format and types | Biome, `tsc --noEmit` | every PR | required |
 | Generated tables up to date | `pnpm gen:tables:check` (fails on any changed, missing or stale generated file) | every PR | required |
-| Golden unit tests | Vitest | every PR, Node 24 and 26 | required, 100% coverage of `src/` (except `src/entry/`) and `evals/` (except the `evals/run.ts` and `evals/bench.ts` CLIs) |
+| Golden unit tests | Vitest | every PR, Node 24 and 26 | required, 100% coverage of `src/` (except `src/entry/`) and `evals/` (except the `evals/run.ts` and `evals/compare.ts` entry points; their logic, `runCli` and `runCompareCli`, is tested) |
 | MCP contract | Vitest plus `InMemoryTransport` client | every PR | required |
 | Agent eval | `evals/run.ts`, agent and judge `gpt-4o` (`OPENAI_API_KEY`), temperature 0 (ADR 0004) | same-repo PRs touching `src/`, `evals/`, or dependencies (Dependabot PRs skipped), and manual `workflow_dispatch` runs | required: Layer 1 >= 32/34 standard cases, every refusal case passes, Layer 2 mean >= 4.0/5.0, 0 hallucinated citations, 0 judge errors, 0 agent errors, all 5 seeded controls caught |
 | Manual | MCP Inspector, Claude Desktop, Claude Code, and a manual eval run (`workflow_dispatch`) | before each tag | checklist |

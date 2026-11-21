@@ -1,5 +1,5 @@
 // Agent tool-use loop, judge orchestration and scorecard writer for the eval harness.
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -31,7 +31,7 @@ import {
   type RecordedToolCall,
   type RubricScore,
 } from "./grading.ts";
-import { DEFAULT_ANTHROPIC_MODEL, type LlmClient } from "./providers.ts";
+import { DEFAULT_ANTHROPIC_MODEL, type LlmClient, type ProviderName } from "./providers.ts";
 import {
   buildScorecard,
   type GateThresholds,
@@ -442,12 +442,42 @@ export function parseConcurrency(
   raw: string | undefined,
   fallback: number = DEFAULT_CONCURRENCY,
 ): number {
+  return parsePositiveInteger(raw, "EVAL_CONCURRENCY", fallback);
+}
+
+/** Parses an optional positive-integer env var, returning `fallback` when it is unset or blank. */
+export function parsePositiveInteger(
+  raw: string | undefined,
+  envName: string,
+  fallback: number,
+): number {
   if (raw === undefined || raw.trim() === "") return fallback;
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1) {
-    throw new Error(`Invalid EVAL_CONCURRENCY "${raw}": expected a positive integer.`);
+    throw new Error(`Invalid ${envName} "${raw}": expected a positive integer.`);
   }
   return parsed;
+}
+
+/** A local model serves one request at a time well; parallel requests mostly queue and time out. */
+export const LOCAL_MODEL_CONCURRENCY = 1;
+
+/** EVAL_CONCURRENCY if set; otherwise 1 when either model is local, else the default. */
+export function concurrencyFor(
+  raw: string | undefined,
+  providers: { readonly agentProvider: ProviderName; readonly judgeProvider: ProviderName },
+): number {
+  const isLocal = providers.agentProvider === "ollama" || providers.judgeProvider === "ollama";
+  return parseConcurrency(raw, isLocal ? LOCAL_MODEL_CONCURRENCY : DEFAULT_CONCURRENCY);
+}
+
+/** The built server when `dist/` exists, else the TypeScript source (for runs before a build). */
+export function defaultServerModuleSpecifier(
+  isBuilt: (url: URL) => boolean = (url) => existsSync(url),
+): string {
+  return isBuilt(new URL("../dist/mcp/server.js", import.meta.url))
+    ? "../dist/mcp/server.js"
+    : "../src/mcp/server.js";
 }
 
 /** Runs the full eval suite with bounded concurrency and returns the scorecard. */
