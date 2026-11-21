@@ -137,11 +137,12 @@ export async function evaluateSingleCase(params: {
   readonly mcpClient: Client;
   readonly tools: readonly Tool[];
   readonly llm: LlmClient;
+  readonly judgeLlm: LlmClient;
   readonly agentModel: string;
   readonly judgeModel: string;
 }): Promise<CaseEvaluation> {
   const startedAt = Date.now();
-  const { evalCase, mcpClient, tools, llm, agentModel, judgeModel } = params;
+  const { evalCase, mcpClient, tools, llm, judgeLlm, agentModel, judgeModel } = params;
   let run: AgentRun;
   try {
     run = await runAgentLoop({ prompt: evalCase.prompt, mcpClient, tools, llm, agentModel });
@@ -153,7 +154,7 @@ export async function evaluateSingleCase(params: {
 
   const layer1 = evaluateLayer1(evalCase, run.toolCalls, run.finalAnswer);
   const judge = await judgeAnswer({
-    llm,
+    llm: judgeLlm,
     judgeModel,
     input: {
       caseId: evalCase.id,
@@ -437,8 +438,11 @@ async function judgeAnswer(params: {
 }
 
 /** Validates EVAL_CONCURRENCY as a positive integer. */
-export function parseConcurrency(raw: string | undefined): number {
-  if (raw === undefined || raw.trim() === "") return DEFAULT_CONCURRENCY;
+export function parseConcurrency(
+  raw: string | undefined,
+  fallback: number = DEFAULT_CONCURRENCY,
+): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1) {
     throw new Error(`Invalid EVAL_CONCURRENCY "${raw}": expected a positive integer.`);
@@ -450,6 +454,8 @@ export function parseConcurrency(raw: string | undefined): number {
 export async function runEvalSuite(options: {
   readonly evalCases: readonly EvalCase[];
   readonly llm: LlmClient;
+  /** Client for the judge and seeded controls; defaults to `llm`. */
+  readonly judgeLlm?: LlmClient;
   readonly controls?: readonly SeededControl[];
   readonly agentModel?: string;
   readonly judgeModel?: string;
@@ -461,6 +467,7 @@ export async function runEvalSuite(options: {
   const judgeModel = options.judgeModel ?? DEFAULT_ANTHROPIC_MODEL;
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
   const controls = options.controls ?? loadSeededControls();
+  const judgeLlm = options.judgeLlm ?? options.llm;
 
   const mcpClient = await createInMemoryMcpClient(options.serverModuleSpecifier);
   try {
@@ -477,11 +484,12 @@ export async function runEvalSuite(options: {
       mcpClient,
       tools: anthropicTools,
       llm: options.llm,
+      judgeLlm,
       agentModel,
       judgeModel,
     });
     const controlResults = await Promise.all(
-      controls.map((control) => evaluateSeededControl({ control, llm: options.llm, judgeModel })),
+      controls.map((control) => evaluateSeededControl({ control, llm: judgeLlm, judgeModel })),
     );
 
     return buildScorecard({
@@ -502,6 +510,7 @@ async function runWorkers(params: {
   readonly mcpClient: Client;
   readonly tools: readonly Tool[];
   readonly llm: LlmClient;
+  readonly judgeLlm: LlmClient;
   readonly agentModel: string;
   readonly judgeModel: string;
 }): Promise<CaseEvaluation[]> {
@@ -515,6 +524,7 @@ async function runWorkers(params: {
         mcpClient: params.mcpClient,
         tools: params.tools,
         llm: params.llm,
+        judgeLlm: params.judgeLlm,
         agentModel: params.agentModel,
         judgeModel: params.judgeModel,
       });

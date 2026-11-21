@@ -112,6 +112,8 @@ pnpm check          # generated tables, Biome lint and format check, tsc, Vitest
 pnpm gen:tables     # regenerate src/tables/generated/ after editing docs/data/
 pnpm test:coverage  # tests with v8 coverage
 pnpm eval           # run 35-case two-layer agent eval (requires ANTHROPIC_API_KEY or OPENAI_API_KEY)
+pnpm eval:local     # same eval on a local model through Ollama, free (needs Ollama running)
+pnpm eval:bench     # compare several models over repeated runs (see below)
 pnpm build          # compile to dist/
 ```
 
@@ -119,7 +121,17 @@ To change a rate, edit or add a CSV in `docs/data/` (with its entry in `docs/dat
 
 `pnpm eval` loads `.env` automatically if present and writes `evals/results/scorecard.json` and `evals/results/scorecard.md`:
 - Set `ANTHROPIC_API_KEY` to run with Claude (`claude-haiku-4-5` by default).
-- Or set `OPENAI_API_KEY` to run with OpenAI (`gpt-4o-mini` by default; override provider with `EVAL_PROVIDER=openai|anthropic` and models with `EVAL_AGENT_MODEL` / `EVAL_JUDGE_MODEL`).
+- Or set `OPENAI_API_KEY` to run with OpenAI (`gpt-4o-mini` by default; override provider with `EVAL_PROVIDER=openai|anthropic|ollama` and models with `EVAL_AGENT_MODEL` / `EVAL_JUDGE_MODEL`).
+- Or set `EVAL_PROVIDER=ollama` to run on a local open-weight model with [Ollama](https://ollama.com), with no key and no cost (`qwen3:8b` by default; `OLLAMA_BASE_URL` defaults to `http://localhost:11434/v1`). Pull the model first, for example `ollama pull qwen3:8b`.
+- `EVAL_JUDGE_PROVIDER` runs the judge on a different provider from the agent, for example a local agent graded by `gpt-4o` ([ADR 0005](docs/adr/0005-local-models-in-the-agent-eval.md)).
+
+### Comparing models
+
+`pnpm eval:bench` runs the whole suite `EVAL_BENCH_RUNS` times (default 3) for each model in `EVAL_BENCH_MODELS`, and writes `evals/results/benchmark-<time>.md` and `.json`: gate passes, Layer 1 pass rate (mean, min and max across runs), rubric mean, hallucinated citations, errors, seeded controls caught and case latency. It reports and never fails on the gate.
+
+```sh
+EVAL_PROVIDER=ollama EVAL_BENCH_MODELS="qwen3:8b,llama3.1:8b,mistral-nemo" pnpm eval:bench
+```
 
 ## Licence
 

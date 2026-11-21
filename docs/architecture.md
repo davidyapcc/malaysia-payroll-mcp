@@ -55,8 +55,10 @@ malaysia-payroll-mcp/
 │   ├── scorecard.ts           # Aggregation, the CI gate and the Markdown scorecard
 │   ├── controls.ts            # Seeded bad answers: zod schema and the "judge must catch" rule
 │   ├── controls.json          # Five seeded bad answers the judge must catch on every live run
-│   ├── providers.ts           # Anthropic and OpenAI LLM client adapters
+│   ├── providers.ts           # Anthropic, OpenAI and Ollama LLM client adapters
 │   ├── runner.ts              # Agent tool loop, judge calls with one retry, and scorecard writer
+│   ├── benchmark.ts           # Aggregates repeated runs per model into a comparison table
+│   ├── bench.ts               # CLI for `pnpm eval:bench`
 │   └── run.ts                 # CLI entry point for running the eval suite
 ├── server.json                # planned: MCP Registry manifest
 └── .github/
@@ -79,7 +81,7 @@ malaysia-payroll-mcp/
 | Build | plain `tsc`, no bundler. With TS 6 or later, add `"types": ["node"]` to tsconfig (the SDK's types reference `Buffer`). |
 | Lint and format | Biome |
 | Tests | Vitest with v8 coverage |
-| Agent eval | `evals/run.ts` over `InMemoryTransport`. CI runs the agent and the judge on OpenAI `gpt-4o`. The Anthropic adapter (`claude-haiku-4-5`) is tested against mocks only and hasn't run live (ADR 0004) |
+| Agent eval | `evals/run.ts` over `InMemoryTransport`. CI runs the agent and the judge on OpenAI `gpt-4o`. The Anthropic adapter (`claude-haiku-4-5`) is tested against mocks only and hasn't run live (ADR 0004). Locally, the agent and judge can run on open-weight models through Ollama (ADR 0005) |
 | Hosting (planned, v1.1) | Cloudflare Workers. AWS Lambda may be tried later as a learning exercise. |
 
 ## Key design decisions
@@ -125,7 +127,7 @@ Resources: `payroll://tables/{kind}/{effectiveFrom}`, for example `payroll://tab
 | --- | --- | --- | --- |
 | Lint, format and types | Biome, `tsc --noEmit` | every PR | required |
 | Generated tables up to date | `pnpm gen:tables:check` (fails on any changed, missing or stale generated file) | every PR | required |
-| Golden unit tests | Vitest | every PR, Node 24 and 26 | required, 100% coverage of `src/` (except `src/entry/`) and `evals/` (except `evals/run.ts`) |
+| Golden unit tests | Vitest | every PR, Node 24 and 26 | required, 100% coverage of `src/` (except `src/entry/`) and `evals/` (except the `evals/run.ts` and `evals/bench.ts` CLIs) |
 | MCP contract | Vitest plus `InMemoryTransport` client | every PR | required |
 | Agent eval | `evals/run.ts`, agent and judge `gpt-4o` (`OPENAI_API_KEY`), temperature 0 (ADR 0004) | same-repo PRs touching `src/`, `evals/`, or dependencies (Dependabot PRs skipped), and manual `workflow_dispatch` runs | required: Layer 1 >= 32/34 standard cases, every refusal case passes, Layer 2 mean >= 4.0/5.0, 0 hallucinated citations, 0 judge errors, 0 agent errors, all 5 seeded controls caught |
 | Manual | MCP Inspector, Claude Desktop, Claude Code, and a manual eval run (`workflow_dispatch`) | before each tag | checklist |
