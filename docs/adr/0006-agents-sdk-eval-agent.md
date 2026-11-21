@@ -17,6 +17,8 @@ So the runner now takes any `EvalAgent` (a function from a prompt and the MCP cl
 - The SDK reaches the server through `RecordingMcpServer`, an `MCPServer` adapter over the eval's in-memory MCP client. Every call is recorded by the same `recordToolCall` the loop uses, and the model sees the same tool text the loop sends it.
 - Same system prompt (`AGENT_SYSTEM_PROMPT`), temperature 0, `MAX_AGENT_TOKENS`, no parallel tool calls, and `maxTurns` equal to `MAX_TOOL_ROUNDS`.
 - A failed run is retried once, then recorded as an agent error, as the loop does per round. One difference: when the SDK runs out of turns it raises an error (an agent error), where the loop grades whatever text it had.
+- On Ollama, `<think>...</think>` reasoning is stripped from the SDK agent's answer as it is from the loop's (ADR 0005).
+- Both agents reach the same endpoint: the base URL and key come from one resolver (`resolveChatCompletionsEndpoint`), and the injected `fetch` is passed to the SDK's OpenAI client too.
 - SDK tracing is turned off, so a local run sends nothing to OpenAI.
 
 ## Consequences

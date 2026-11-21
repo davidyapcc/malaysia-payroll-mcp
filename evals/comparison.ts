@@ -6,9 +6,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   type AgentImplementation,
-  createAgentsSdkAgent,
-  createAgentsSdkModel,
   parseAgentImplementation,
+  resolveEvalAgent,
 } from "./agents-sdk.ts";
 import type { SeededControl } from "./controls.ts";
 import type { EvalCase } from "./grading.ts";
@@ -276,12 +275,7 @@ export async function runCompareCli(
     resolveProvider({ ...env, EVAL_AGENT_MODEL: model }, options.fetchFn),
   );
   for (const provider of providers) {
-    const agent =
-      agentImplementation === "agents-sdk"
-        ? createAgentsSdkAgent(
-            createAgentsSdkModel(provider.agentProvider, provider.agentModel, env),
-          )
-        : undefined;
+    const agent = resolveEvalAgent(agentImplementation, provider, env, options.fetchFn);
     for (let run = 1; run <= runsPerModel; run++) {
       log(`Running ${provider.agentModel}, run ${run} of ${runsPerModel}...`);
       const startedAt = Date.now();

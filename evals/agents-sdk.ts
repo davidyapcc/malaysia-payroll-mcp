@@ -12,11 +12,7 @@ import {
 import { OpenAIChatCompletionsModel } from "@openai/agents-openai";
 import OpenAI from "openai";
 import type { RecordedToolCall } from "./grading.ts";
-import {
-  DEFAULT_OLLAMA_BASE_URL,
-  DEFAULT_OPENAI_BASE_URL,
-  type ProviderName,
-} from "./providers.ts";
+import { type ProviderName, resolveChatCompletionsEndpoint, stripReasoning } from "./providers.ts";
 import {
   AGENT_SYSTEM_PROMPT,
   type AgentRun,
@@ -99,8 +95,17 @@ export class RecordingMcpServer implements MCPServer {
   }
 }
 
-/** Builds an eval agent that runs each prompt through an Agents SDK `Agent` on `model`. */
-export function createAgentsSdkAgent(model: Model): EvalAgent {
+/**
+ * Builds an eval agent that runs each prompt through an Agents SDK `Agent` on `model`. Set
+ * `shouldStripReasoning` for Ollama, so `<think>` reasoning is removed from the answer exactly as
+ * the hand-rolled loop's Ollama client removes it (ADR 0005).
+ */
+export function createAgentsSdkAgent(
+  model: Model,
+  options: { readonly shouldStripReasoning?: boolean } = {},
+): EvalAgent {
+  const cleanAnswer = (text: string) =>
+    options.shouldStripReasoning === true ? stripReasoning(text) : text.trim();
   // No traces leave the machine: a local run must not need an OpenAI key.
   const runner = new Runner({ tracingDisabled: true });
 
@@ -119,7 +124,7 @@ export function createAgentsSdkAgent(model: Model): EvalAgent {
     });
     const result = await runner.run(agent, prompt, { maxTurns: MAX_TOOL_ROUNDS });
     // finalOutput is the answer text, or undefined if the run ended without one; join maps that to "".
-    return { toolCalls: server.calls, finalAnswer: [result.finalOutput].join("").trim() };
+    return { toolCalls: server.calls, finalAnswer: cleanAnswer([result.finalOutput].join("")) };
   };
 
   return async ({ prompt, mcpClient }) => {
@@ -138,28 +143,44 @@ export function createAgentsSdkAgent(model: Model): EvalAgent {
 
 /**
  * Builds the Chat Completions model the Agents SDK agent runs on. Only OpenAI-compatible
- * providers work: OpenAI itself, or a local model through Ollama.
+ * providers work: OpenAI itself, or a local model through Ollama. The endpoint and key come from
+ * the same resolver as the hand-rolled loop's client, and `fetchFn` is passed through.
  */
 export function createAgentsSdkModel(
   provider: ProviderName,
   model: string,
   env: NodeJS.ProcessEnv,
+  fetchFn?: typeof fetch,
 ): Model {
   if (provider === "anthropic") {
     throw new Error(
       'EVAL_AGENT_IMPL="agents-sdk" needs an OpenAI-compatible provider: set EVAL_PROVIDER to "openai" or "ollama".',
     );
   }
-  const client =
-    provider === "ollama"
-      ? new OpenAI({
-          // Ollama ignores the key, but the client requires one.
-          apiKey: "ollama",
-          baseURL: env.OLLAMA_BASE_URL?.trim() || DEFAULT_OLLAMA_BASE_URL,
-        })
-      : new OpenAI({
-          apiKey: env.OPENAI_API_KEY?.trim() ?? "",
-          baseURL: env.OPENAI_BASE_URL?.trim() || DEFAULT_OPENAI_BASE_URL,
-        });
+  const endpoint = resolveChatCompletionsEndpoint(provider, env);
+  const client = new OpenAI({
+    // Ollama ignores the key, but the client requires one.
+    apiKey: endpoint.apiKey ?? "ollama",
+    baseURL: endpoint.baseUrl,
+    ...(fetchFn !== undefined ? { fetch: fetchFn } : {}),
+  });
   return new OpenAIChatCompletionsModel(client, model);
+}
+
+/**
+ * The agent under evaluation for EVAL_AGENT_IMPL: undefined for "loop" (the runner's default),
+ * or an Agents SDK agent on the agent provider and model. Shared by `pnpm eval` and
+ * `pnpm eval:compare`.
+ */
+export function resolveEvalAgent(
+  implementation: AgentImplementation,
+  provider: { readonly agentProvider: ProviderName; readonly agentModel: string },
+  env: NodeJS.ProcessEnv,
+  fetchFn?: typeof fetch,
+): EvalAgent | undefined {
+  if (implementation === "loop") return undefined;
+  return createAgentsSdkAgent(
+    createAgentsSdkModel(provider.agentProvider, provider.agentModel, env, fetchFn),
+    { shouldStripReasoning: provider.agentProvider === "ollama" },
+  );
 }

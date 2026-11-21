@@ -5,6 +5,7 @@ import {
   createAgentsSdkModel,
   parseAgentImplementation,
   RecordingMcpServer,
+  resolveEvalAgent,
 } from "../../evals/agents-sdk.js";
 import type { EvalCase } from "../../evals/grading.js";
 import { runCli } from "../../evals/run.js";
@@ -197,13 +198,50 @@ describe("OpenAI Agents SDK eval agent", () => {
     expect(scorecard.agentErrors).toBe(0);
   });
 
+  it("strips <think> reasoning from the answer only when asked to (Ollama)", async () => {
+    const evalCase = firstCase();
+    const mcpClient = await createInMemoryMcpClient();
+    try {
+      const thinking = () => scriptedModel([[message("<think>plan</think>\nAnswer")]]).model;
+      const stripped = await createAgentsSdkAgent(thinking(), { shouldStripReasoning: true })({
+        prompt: evalCase.prompt,
+        mcpClient,
+      });
+      expect(stripped.finalAnswer).toBe("Answer");
+      const kept = await createAgentsSdkAgent(thinking())({ prompt: evalCase.prompt, mcpClient });
+      expect(kept.finalAnswer).toBe("<think>plan</think>\nAnswer");
+    } finally {
+      await mcpClient.close();
+    }
+  });
+
+  it("resolves the eval agent for each EVAL_AGENT_IMPL", () => {
+    const provider = { agentProvider: "ollama" as const, agentModel: "qwen3:8b" };
+    expect(resolveEvalAgent("loop", provider, {})).toBeUndefined();
+    expect(resolveEvalAgent("agents-sdk", provider, {})).toBeTypeOf("function");
+    expect(
+      resolveEvalAgent(
+        "agents-sdk",
+        { agentProvider: "openai", agentModel: "gpt-4o" },
+        {
+          OPENAI_API_KEY: "sk-test",
+        },
+      ),
+    ).toBeTypeOf("function");
+    expect(() =>
+      resolveEvalAgent("agents-sdk", { agentProvider: "anthropic", agentModel: "x" }, {}),
+    ).toThrow("needs an OpenAI-compatible provider");
+  });
+
   it("builds Chat Completions models for OpenAI and Ollama, and refuses Anthropic", () => {
     expect(createAgentsSdkModel("ollama", "qwen3:8b", {})).toBeDefined();
     expect(
       createAgentsSdkModel("ollama", "qwen3:8b", { OLLAMA_BASE_URL: "http://box:11434/v1" }),
     ).toBeDefined();
     expect(createAgentsSdkModel("openai", "gpt-4o", { OPENAI_API_KEY: "sk-test" })).toBeDefined();
-    expect(() => createAgentsSdkModel("openai", "gpt-4o", {})).toThrow();
+    expect(() => createAgentsSdkModel("openai", "gpt-4o", {})).toThrow(
+      'Provider "openai" is selected, but OPENAI_API_KEY is not set.',
+    );
     expect(
       createAgentsSdkModel("openai", "gpt-4o", {
         OPENAI_API_KEY: "sk-test",

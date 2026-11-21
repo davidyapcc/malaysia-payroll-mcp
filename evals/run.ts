@@ -1,11 +1,7 @@
 // CLI entry point for running the two-layer agent eval suite (`pnpm eval`).
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  createAgentsSdkAgent,
-  createAgentsSdkModel,
-  parseAgentImplementation,
-} from "./agents-sdk.ts";
+import { parseAgentImplementation, resolveEvalAgent } from "./agents-sdk.ts";
 import type { SeededControl } from "./controls.ts";
 import type { EvalCase } from "./grading.ts";
 import { resolveProvider } from "./providers.ts";
@@ -33,10 +29,7 @@ export async function runCli(
 ): Promise<number> {
   const provider = resolveProvider(env, options.fetchFn);
   const agentImpl = parseAgentImplementation(env.EVAL_AGENT_IMPL);
-  const agent =
-    agentImpl === "agents-sdk"
-      ? createAgentsSdkAgent(createAgentsSdkModel(provider.agentProvider, provider.agentModel, env))
-      : undefined;
+  const agent = resolveEvalAgent(agentImpl, provider, env, options.fetchFn);
   const scorecard = await runEvalSuite({
     evalCases: options.evalCases ?? loadEvalCases(),
     ...(options.controls !== undefined ? { controls: options.controls } : {}),

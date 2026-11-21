@@ -73,24 +73,34 @@ function scorecardFor(params: {
 /** An OpenAI-compatible endpoint: the agent calls the expected tool, then answers; the judge passes. */
 function fakeChatCompletions(evalCases: readonly EvalCase[]): typeof fetch {
   const byPrompt = new Map(evalCases.map((c) => [c.prompt, c]));
+  // A full Chat Completions body: the Agents SDK reads more fields than the loop's adapter does.
   const reply = (message: Record<string, unknown>, finish: string) =>
-    new Response(JSON.stringify({ choices: [{ finish_reason: finish, message }] }), {
-      status: 200,
-    });
+    new Response(
+      JSON.stringify({
+        id: "chatcmpl-fake",
+        object: "chat.completion",
+        created: 0,
+        model: "fake",
+        choices: [{ index: 0, finish_reason: finish, message: { role: "assistant", ...message } }],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
   return async (_input, init) => {
     const body = JSON.parse(String(init?.body)) as {
       tools?: unknown[];
       messages: { role: string; content: string | null }[];
     };
     if (body.tools === undefined) return reply({ content: cleanVerdictJson() }, "stop");
-    const evalCase = byPrompt.get(String(body.messages[1]?.content)) as EvalCase;
-    if (body.messages.length === 2) {
+    const userMessage = body.messages.find((m) => m.role === "user");
+    const evalCase = byPrompt.get(String(userMessage?.content)) as EvalCase;
+    if (!body.messages.some((m) => m.role === "tool")) {
       return reply(
         {
           content: null,
           tool_calls: [
             {
               id: `call_${evalCase.id}`,
+              type: "function",
               function: {
                 name: evalCase.expectedTool,
                 arguments: JSON.stringify(evalCase.expectedInput),
@@ -270,8 +280,6 @@ describe("model comparison", () => {
         {
           EVAL_PROVIDER: "ollama",
           EVAL_AGENT_IMPL: "agents-sdk",
-          // Nothing listens here: every SDK run fails, so the case is an agent error.
-          OLLAMA_BASE_URL: "http://127.0.0.1:9/v1",
           EVAL_JUDGE_MODEL: "judge",
           EVAL_COMPARE_MODELS: "qwen3:8b",
           EVAL_COMPARE_RUNS: "1",
@@ -285,8 +293,9 @@ describe("model comparison", () => {
           log: () => {},
         },
       );
+      // The SDK reaches the same fake endpoint as the judge, through the injected fetch.
       expect(comparison.agentImplementation).toBe("agents-sdk");
-      expect(comparison.models[0]?.agentErrors).toBe(1);
+      expect(comparison.models[0]).toMatchObject({ agentErrors: 0, gatePasses: 1 });
     } finally {
       rmSync(outDir, { recursive: true, force: true });
     }

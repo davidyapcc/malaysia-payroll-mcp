@@ -305,13 +305,37 @@ const DEFAULT_MODELS: Readonly<Record<ProviderName, string>> = {
   ollama: DEFAULT_OLLAMA_MODEL,
 };
 
+/** Where an OpenAI-compatible provider is reached, and the key it needs (none for Ollama). */
+export interface ChatCompletionsEndpoint {
+  readonly baseUrl: string;
+  readonly apiKey: string | undefined;
+}
+
+/**
+ * Resolves the base URL and key for OpenAI or Ollama from env, shared by the hand-rolled loop's
+ * client and the Agents SDK model so both reach the same endpoint.
+ */
+export function resolveChatCompletionsEndpoint(
+  provider: "openai" | "ollama",
+  env: NodeJS.ProcessEnv,
+): ChatCompletionsEndpoint {
+  if (provider === "ollama") {
+    return { baseUrl: env.OLLAMA_BASE_URL?.trim() || DEFAULT_OLLAMA_BASE_URL, apiKey: undefined };
+  }
+  const apiKey = env.OPENAI_API_KEY?.trim() ?? "";
+  if (apiKey === "") {
+    throw new Error('Provider "openai" is selected, but OPENAI_API_KEY is not set.');
+  }
+  return { baseUrl: env.OPENAI_BASE_URL?.trim() || DEFAULT_OPENAI_BASE_URL, apiKey };
+}
+
 function createClient(
   provider: ProviderName,
   env: NodeJS.ProcessEnv,
   fetchFn: typeof fetch,
 ): LlmClient {
   if (provider === "ollama") {
-    return createOllamaClient(env.OLLAMA_BASE_URL?.trim() || DEFAULT_OLLAMA_BASE_URL, fetchFn);
+    return createOllamaClient(resolveChatCompletionsEndpoint("ollama", env).baseUrl, fetchFn);
   }
   if (provider === "anthropic") {
     const anthropicKey = env.ANTHROPIC_API_KEY?.trim() ?? "";
@@ -320,15 +344,8 @@ function createClient(
     }
     return createAnthropicClient(anthropicKey, fetchFn);
   }
-  const openAiKey = env.OPENAI_API_KEY?.trim() ?? "";
-  if (openAiKey === "") {
-    throw new Error('Provider "openai" is selected, but OPENAI_API_KEY is not set.');
-  }
-  return createOpenAiClient(
-    openAiKey,
-    fetchFn,
-    env.OPENAI_BASE_URL?.trim() || DEFAULT_OPENAI_BASE_URL,
-  );
+  const endpoint = resolveChatCompletionsEndpoint("openai", env);
+  return createOpenAiClient(endpoint.apiKey as string, fetchFn, endpoint.baseUrl);
 }
 
 /**
