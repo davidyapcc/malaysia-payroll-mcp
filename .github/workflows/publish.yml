@@ -48,9 +48,17 @@ jobs:
       - run: pnpm build
 
       # No npm token is stored: npm trusted publishing must be set up for this repo and workflow
-      # on npmjs.com. Provenance is attached automatically.
+      # on npmjs.com. Provenance is attached automatically. A version already on npm (the first,
+      # manual publish) is skipped so the tag still lists it on the Registry.
       - name: Publish to npm
-        run: npm publish
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if npm view "malaysia-payroll-mcp@$TAG" version >/dev/null 2>&1; then
+            echo "malaysia-payroll-mcp@$TAG is already on npm; skipping npm publish."
+          else
+            npm publish
+          fi
 
       - name: Publish to the MCP Registry
         env:
