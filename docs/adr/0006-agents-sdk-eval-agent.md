@@ -21,6 +21,6 @@ So the runner now takes any `EvalAgent` (a function from a prompt and the MCP cl
 
 ## Consequences
 
-- `pnpm eval:bench` with `EVAL_AGENT_IMPL=agents-sdk` compares the two implementations on the same models; benchmark rows are labelled `model (loop)` or `model (agents-sdk)`.
+- `pnpm eval:compare` with `EVAL_AGENT_IMPL=agents-sdk` runs a model comparison on the SDK agent; the comparison records which implementation it ran, so a loop comparison and an SDK comparison on the same models and judge can be read side by side.
 - CI still gates on the hand-rolled loop only, so a PR costs the same as before.
 - The Agents SDK packages are dev dependencies: the published server does not depend on them.
