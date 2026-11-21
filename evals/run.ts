@@ -2,6 +2,11 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  createAgentsSdkAgent,
+  createAgentsSdkModel,
+  parseAgentImplementation,
+} from "./agents-sdk.ts";
 import type { SeededControl } from "./controls.ts";
 import type { EvalCase } from "./grading.ts";
 import { type ResolvedProvider, resolveProvider } from "./providers.ts";
@@ -29,6 +34,11 @@ export async function runCli(
   options: RunCliOptions = {},
 ): Promise<number> {
   const provider = resolveProvider(env, options.fetchFn);
+  const agentImpl = parseAgentImplementation(env.EVAL_AGENT_IMPL);
+  const agent =
+    agentImpl === "agents-sdk"
+      ? createAgentsSdkAgent(createAgentsSdkModel(provider.agentProvider, provider.agentModel, env))
+      : undefined;
   const defaultServerSpecifier = existsSync(new URL("../dist/mcp/server.js", import.meta.url))
     ? "../dist/mcp/server.js"
     : "../src/mcp/server.js";
@@ -37,6 +47,7 @@ export async function runCli(
     ...(options.controls !== undefined ? { controls: options.controls } : {}),
     llm: provider.client,
     judgeLlm: provider.judgeClient,
+    ...(agent !== undefined ? { agent } : {}),
     agentModel: provider.agentModel,
     judgeModel: provider.judgeModel,
     concurrency: parseConcurrency(
@@ -52,7 +63,7 @@ export async function runCli(
     env.GITHUB_STEP_SUMMARY,
   );
 
-  console.log(`Agent: ${provider.agentProvider}/${provider.agentModel}`);
+  console.log(`Agent: ${provider.agentProvider}/${provider.agentModel} (${agentImpl})`);
   console.log(`Judge: ${provider.judgeProvider}/${provider.judgeModel}`);
   console.log(renderScorecardMarkdown(scorecard));
   console.log(`Scorecard written to ${jsonPath} and ${markdownPath}`);

@@ -125,12 +125,21 @@ To change a rate, edit or add a CSV in `docs/data/` (with its entry in `docs/dat
 - Or set `EVAL_PROVIDER=ollama` to run on a local open-weight model with [Ollama](https://ollama.com), with no key and no cost (`qwen3:8b` by default; `OLLAMA_BASE_URL` defaults to `http://localhost:11434/v1`). Pull the model first, for example `ollama pull qwen3:8b`.
 - `EVAL_JUDGE_PROVIDER` runs the judge on a different provider from the agent, for example a local agent graded by `gpt-4o` ([ADR 0005](docs/adr/0005-local-models-in-the-agent-eval.md)).
 
+### Agent implementations
+
+`EVAL_AGENT_IMPL` picks the agent under test: `loop` (default) is the hand-rolled tool loop in `evals/runner.ts`; `agents-sdk` is the same agent built on the [OpenAI Agents SDK](https://openai.github.io/openai-agents-js/), which discovers and calls this server's tools through its MCP support. It runs on `openai` or `ollama`, and is graded by the same checks and judge ([ADR 0006](docs/adr/0006-agents-sdk-eval-agent.md)).
+
+```sh
+EVAL_PROVIDER=ollama EVAL_AGENT_IMPL=agents-sdk pnpm eval
+```
+
 ### Comparing models
 
 `pnpm eval:bench` runs the whole suite `EVAL_BENCH_RUNS` times (default 3) for each model in `EVAL_BENCH_MODELS`, and writes `evals/results/benchmark-<time>.md` and `.json`: gate passes, Layer 1 pass rate (mean, min and max across runs), rubric mean, hallucinated citations, errors, seeded controls caught and case latency. It reports and never fails on the gate.
 
 ```sh
 EVAL_PROVIDER=ollama EVAL_BENCH_MODELS="qwen3:8b,llama3.1:8b,mistral-nemo" pnpm eval:bench
+EVAL_PROVIDER=ollama EVAL_AGENT_IMPL=agents-sdk EVAL_BENCH_MODELS="qwen3:8b" pnpm eval:bench
 ```
 
 ## Licence

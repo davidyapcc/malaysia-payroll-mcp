@@ -57,6 +57,7 @@ malaysia-payroll-mcp/
 │   ├── controls.json          # Five seeded bad answers the judge must catch on every live run
 │   ├── providers.ts           # Anthropic, OpenAI and Ollama LLM client adapters
 │   ├── runner.ts              # Agent tool loop, judge calls with one retry, and scorecard writer
+│   ├── agents-sdk.ts          # Eval agent on the OpenAI Agents SDK, and its MCP server adapter (ADR 0006)
 │   ├── benchmark.ts           # Aggregates repeated runs per model into a comparison table
 │   ├── bench.ts               # CLI for `pnpm eval:bench`
 │   └── run.ts                 # CLI entry point for running the eval suite

@@ -4,6 +4,11 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  createAgentsSdkAgent,
+  createAgentsSdkModel,
+  parseAgentImplementation,
+} from "./agents-sdk.ts";
+import {
   type BenchmarkRun,
   buildBenchmarkReport,
   parseBenchModels,
@@ -15,6 +20,7 @@ import { loadEvalCases, parseConcurrency, runEvalSuite } from "./runner.ts";
 
 const LOCAL_MODEL_CONCURRENCY = 1;
 
+const agentImpl = parseAgentImplementation(process.env.EVAL_AGENT_IMPL);
 const models = parseBenchModels(process.env.EVAL_BENCH_MODELS);
 const runsPerModel = parseBenchRuns(process.env.EVAL_BENCH_RUNS);
 const evalCases = loadEvalCases();
@@ -29,14 +35,21 @@ for (const model of models) {
   const provider = resolveProvider({ ...process.env, EVAL_AGENT_MODEL: model });
   agentProvider = provider.agentProvider;
   judgeProvider = provider.judgeProvider;
+  const agent =
+    agentImpl === "agents-sdk"
+      ? createAgentsSdkAgent(
+          createAgentsSdkModel(provider.agentProvider, provider.agentModel, process.env),
+        )
+      : undefined;
   const isLocal = provider.agentProvider === "ollama" || provider.judgeProvider === "ollama";
   for (let run = 1; run <= runsPerModel; run++) {
-    console.log(`Running ${model}, run ${run} of ${runsPerModel}...`);
+    console.log(`Running ${model} (${agentImpl}), run ${run} of ${runsPerModel}...`);
     const startedAt = Date.now();
     const scorecard = await runEvalSuite({
       evalCases,
       llm: provider.client,
       judgeLlm: provider.judgeClient,
+      ...(agent !== undefined ? { agent } : {}),
       agentModel: provider.agentModel,
       judgeModel: provider.judgeModel,
       concurrency: parseConcurrency(
@@ -46,7 +59,7 @@ for (const model of models) {
       serverModuleSpecifier,
     });
     const wallMs = Date.now() - startedAt;
-    runs.push({ agentModel: model, scorecard, wallMs });
+    runs.push({ agentModel: `${model} (${agentImpl})`, scorecard, wallMs });
     console.log(
       `  gate ${scorecard.isGatePassed ? "passed" : "failed"}, Layer 1 ${scorecard.layer1Summary.passRate}%, rubric ${scorecard.layer2Summary.overallMean}, ${Math.round(wallMs / 1000)} s`,
     );
