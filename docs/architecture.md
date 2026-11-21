@@ -58,10 +58,10 @@ malaysia-payroll-mcp/
 │   ├── providers.ts           # Anthropic and OpenAI LLM client adapters
 │   ├── runner.ts              # Agent tool loop, judge calls with one retry, and scorecard writer
 │   └── run.ts                 # CLI entry point for running the eval suite
-├── server.json                # planned: MCP Registry manifest
+├── server.json                # MCP Registry manifest
 └── .github/
     ├── dependabot.yml
-    └── workflows/{ci,publish}.yml  # publish.yml is planned
+    └── workflows/{ci,publish}.yml
 ```
 
 **`core/` never imports from `mcp/`.** The calculations stay plain functions that can be tested without a server, and the MCP layer is a thin adapter on top. That keeps 100% core coverage cheap and lets a later country server reuse the core. Keep `money.ts`, `citation.ts` and `tables/loader.ts` free of Malaysia-specific logic, so they can move into a shared package if a second country happens.
@@ -138,7 +138,7 @@ Releases are tagged on GitHub. `.github/workflows/publish.yml` publishes each ve
 
 - **Versioning.** A new rate table is a minor version. So is any fix that changes a number, with a "results changed" note in the release notes, never a quiet patch. A schema change that breaks callers is a major version. Patch versions cover everything else.
 - **Publishing.** Pushing a version tag (a bare number such as `0.2.0`, no `v` prefix) runs `publish.yml`. It checks the tag equals the version in `package.json` and `server.json`, runs `pnpm check`, then publishes to npm through trusted publishing (OIDC, needs `id-token: write`, provenance is automatic), then to the MCP Registry with `mcp-publisher login github-oidc`. No npm token is stored. The first npm publish is probably manual, so trusted publishing can be configured on an existing package. Publish runs on Node 24.
-- **Registry identity.** `server.json` `name` and `package.json` `mcpName` are both `io.github.davidyapcc/malaysia-payroll-mcp`. Bump the version in both files; `test/server-json.test.ts` fails if they drift. The Registry is still in preview and may reset, so don't treat the listing as permanent.
+- **Registry identity.** `server.json` `name` and `package.json` `mcpName` are both `io.github.davidyapcc/malaysia-payroll-mcp`. A release bumps the version in four places: `package.json`, `src/version.ts` and both `version` fields in `server.json`. `test/server-json.test.ts` and `test/version.test.ts` fail if they drift, and the publish workflow checks the tag against `package.json` before running them. The Registry is still in preview and may reset, so don't treat the listing as permanent.
 - **Distribution.** v1.0 ships over stdio only (`npx -y malaysia-payroll-mcp`). No MCPB bundle. v1.1 adds the Cloudflare Workers endpoint, which works as an authless custom connector in claude.ai (paid plans).
 - **Dependencies.** Dependabot, weekly, minor and patch updates grouped into one PR. CI alone decides whether it merges. Dependabot PRs skip the eval job, because they can't read repo secrets, and a skipped job reports as passing.
 
