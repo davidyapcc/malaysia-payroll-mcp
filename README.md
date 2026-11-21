@@ -121,6 +121,10 @@ To change a rate, edit or add a CSV in `docs/data/` (with its entry in `docs/dat
 - Set `ANTHROPIC_API_KEY` to run with Claude (`claude-haiku-4-5` by default).
 - Or set `OPENAI_API_KEY` to run with OpenAI (`gpt-4o-mini` by default; override provider with `EVAL_PROVIDER=openai|anthropic` and models with `EVAL_AGENT_MODEL` / `EVAL_JUDGE_MODEL`).
 
+## Releasing
+
+Bump `version` in `package.json`, `server.json` (both places) and `src/version.ts`, update the changelog, merge, then push a tag with the bare version number (for example `git tag 0.3.0 && git push origin 0.3.0`). `.github/workflows/publish.yml` checks the versions match, runs `pnpm check`, publishes to npm through [trusted publishing](https://docs.npmjs.com/trusted-publishers) (with provenance, no stored token) and lists the version on the [MCP Registry](https://registry.modelcontextprotocol.io) under `io.github.davidyapcc/malaysia-payroll-mcp`.
+
 ## Licence
 
 [MIT](LICENSE)

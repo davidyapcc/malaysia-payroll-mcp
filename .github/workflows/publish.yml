@@ -1,0 +1,62 @@
+name: Publish
+
+# Pushing a version tag (a bare number such as 0.3.0, no "v" prefix) publishes the package to npm
+# through trusted publishing, then lists that version on the MCP Registry (docs/architecture.md).
+on:
+  push:
+    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm and the MCP Registry
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # OIDC token for npm trusted publishing (with provenance) and the Registry's GitHub login.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install --global npm@^11.5.1
+      - run: pnpm install --frozen-lockfile
+
+      - name: Check the tag matches package.json and server.json
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          pkg_version="$(node -p 'require("./package.json").version')"
+          server_version="$(node -p 'require("./server.json").version')"
+          if [ "$TAG" != "$pkg_version" ] || [ "$TAG" != "$server_version" ]; then
+            echo "Tag $TAG must equal package.json ($pkg_version) and server.json ($server_version)." >&2
+            exit 1
+          fi
+
+      - run: pnpm check
+      - run: pnpm build
+
+      # No npm token is stored: npm trusted publishing must be set up for this repo and workflow
+      # on npmjs.com. Provenance is attached automatically.
+      - name: Publish to npm
+        run: npm publish
+
+      - name: Publish to the MCP Registry
+        env:
+          # Pinned; bump deliberately after reading the registry's release notes.
+          MCP_PUBLISHER_VERSION: v1.8.10
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
