@@ -73,24 +73,34 @@ function scorecardFor(params: {
 /** An OpenAI-compatible endpoint: the agent calls the expected tool, then answers; the judge passes. */
 function fakeChatCompletions(evalCases: readonly EvalCase[]): typeof fetch {
   const byPrompt = new Map(evalCases.map((c) => [c.prompt, c]));
+  // A full Chat Completions body: the Agents SDK reads more fields than the loop's adapter does.
   const reply = (message: Record<string, unknown>, finish: string) =>
-    new Response(JSON.stringify({ choices: [{ finish_reason: finish, message }] }), {
-      status: 200,
-    });
+    new Response(
+      JSON.stringify({
+        id: "chatcmpl-fake",
+        object: "chat.completion",
+        created: 0,
+        model: "fake",
+        choices: [{ index: 0, finish_reason: finish, message: { role: "assistant", ...message } }],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
   return async (_input, init) => {
     const body = JSON.parse(String(init?.body)) as {
       tools?: unknown[];
       messages: { role: string; content: string | null }[];
     };
     if (body.tools === undefined) return reply({ content: cleanVerdictJson() }, "stop");
-    const evalCase = byPrompt.get(String(body.messages[1]?.content)) as EvalCase;
-    if (body.messages.length === 2) {
+    const userMessage = body.messages.find((m) => m.role === "user");
+    const evalCase = byPrompt.get(String(userMessage?.content)) as EvalCase;
+    if (!body.messages.some((m) => m.role === "tool")) {
       return reply(
         {
           content: null,
           tool_calls: [
             {
               id: `call_${evalCase.id}`,
+              type: "function",
               function: {
                 name: evalCase.expectedTool,
                 arguments: JSON.stringify(evalCase.expectedInput),
@@ -148,6 +158,7 @@ describe("model comparison", () => {
 
   it("groups runs by model and summarises variance, controls, timing and scored cases", () => {
     const comparison = buildComparison({
+      agentImplementation: "loop",
       agentProvider: "ollama",
       judgeProvider: "openai",
       judgeModel: "gpt-4o",
@@ -199,7 +210,7 @@ describe("model comparison", () => {
     expect(comparison.models[1]).toMatchObject({ controlsCaught: 0, gatePasses: 0 });
 
     const markdown = renderComparisonMarkdown(comparison);
-    expect(markdown).toContain("Judge: openai/`gpt-4o` for every row.");
+    expect(markdown).toContain("Agent: loop on ollama. Judge: openai/`gpt-4o` for every row.");
     expect(markdown).toContain("Hardware: Apple M3 (8 cores), 24 GiB RAM, darwin/arm64.");
     expect(markdown).toContain("| `qwen3:8b` | 2 |");
     expect(markdown).toContain("75% (50 to 100)");
@@ -208,6 +219,7 @@ describe("model comparison", () => {
 
   it("counts a must-pass agent error once, under agent errors, and weights the rubric by scored case", () => {
     const comparison = buildComparison({
+      agentImplementation: "loop",
       agentProvider: "ollama",
       judgeProvider: "openai",
       judgeModel: "gpt-4o",
@@ -242,6 +254,7 @@ describe("model comparison", () => {
     expect(Date.parse(comparison.generatedAt)).not.toBeNaN();
 
     const allUnscored = buildComparison({
+      agentImplementation: "loop",
       agentProvider: "ollama",
       judgeProvider: "ollama",
       judgeModel: "qwen3:14b",
@@ -256,6 +269,36 @@ describe("model comparison", () => {
     });
     expect(allUnscored.models[0]?.rubricMean).toBeNull();
     expect(renderComparisonMarkdown(allUnscored)).toContain("| n/a (0) |");
+  });
+
+  it("runs the Agents SDK agent when EVAL_AGENT_IMPL=agents-sdk", async () => {
+    const [evalCase] = loadEvalCases();
+    const evalCases = [evalCase as EvalCase];
+    const outDir = mkdtempSync(join(tmpdir(), "compare-sdk-"));
+    try {
+      const { comparison } = await runCompareCli(
+        {
+          EVAL_PROVIDER: "ollama",
+          EVAL_AGENT_IMPL: "agents-sdk",
+          EVAL_JUDGE_MODEL: "judge",
+          EVAL_COMPARE_MODELS: "qwen3:8b",
+          EVAL_COMPARE_RUNS: "1",
+        },
+        {
+          evalCases,
+          controls: [],
+          fetchFn: fakeChatCompletions(evalCases),
+          outDir,
+          hardware: HARDWARE,
+          log: () => {},
+        },
+      );
+      // The SDK reaches the same fake endpoint as the judge, through the injected fetch.
+      expect(comparison.agentImplementation).toBe("agents-sdk");
+      expect(comparison.models[0]).toMatchObject({ agentErrors: 0, gatePasses: 1 });
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
   });
 
   it("requires one fixed judge model so rows are comparable", async () => {

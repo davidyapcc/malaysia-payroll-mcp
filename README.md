@@ -126,6 +126,14 @@ To change a rate, edit or add a CSV in `docs/data/` (with its entry in `docs/dat
 - With Ollama, `<think>...</think>` reasoning that some models write into their answer is removed before grading.
 - `EVAL_JUDGE_PROVIDER` runs the judge on a different provider from the agent, for example a local agent graded by `gpt-4o` ([ADR 0005](docs/adr/0005-local-models-in-the-agent-eval.md)).
 
+### Agent implementations
+
+`EVAL_AGENT_IMPL` picks the agent under test: `loop` (default) is the hand-rolled tool loop in `evals/runner.ts`; `agents-sdk` is the same agent built on the [OpenAI Agents SDK](https://openai.github.io/openai-agents-js/), which discovers and calls this server's tools through its MCP support. It runs on `openai` or `ollama`, and is graded by the same checks and judge ([ADR 0006](docs/adr/0006-agents-sdk-eval-agent.md)).
+
+```sh
+EVAL_PROVIDER=ollama EVAL_AGENT_IMPL=agents-sdk pnpm eval
+```
+
 ### Comparing models
 
 `pnpm eval:compare` runs the whole suite `EVAL_COMPARE_RUNS` times (default 3) for each model in `EVAL_COMPARE_MODELS`, grades every model with the one judge named by `EVAL_JUDGE_MODEL` (required, so rows are comparable), and writes `evals/results/comparison-<time>.md` and `.json`: gate passes, Layer 1 pass rate (mean, min and max across runs), must-pass failures, rubric mean over the cases the judge scored, hallucinated citations, agent and judge errors, seeded controls caught, case latency, minutes per run, and the machine's hardware. It reports and never fails on the gate.
@@ -136,6 +144,8 @@ EVAL_PROVIDER=ollama EVAL_JUDGE_PROVIDER=openai EVAL_JUDGE_MODEL=gpt-4o \
   EVAL_COMPARE_MODELS="qwen3:8b,llama3.1:8b,qwen3:14b" pnpm eval:compare
 # Everything local and free
 EVAL_PROVIDER=ollama EVAL_JUDGE_MODEL=qwen3:14b EVAL_COMPARE_MODELS="qwen3:8b,llama3.1:8b" pnpm eval:compare
+# The Agents SDK agent in place of the hand-rolled loop
+EVAL_PROVIDER=ollama EVAL_AGENT_IMPL=agents-sdk EVAL_JUDGE_MODEL=qwen3:14b EVAL_COMPARE_MODELS="qwen3:8b" pnpm eval:compare
 ```
 
 ## Releasing
