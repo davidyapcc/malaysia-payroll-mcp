@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.davidyapcc/malaysia-payroll-mcp",
+  "title": "Malaysia Payroll",
+  "description": "Statutory deductions and employer contributions in Malaysia (EPF, SOCSO, SKBBK, EIS, MTD/PCB), cited",
+  "repository": {
+    "url": "https://github.com/davidyapcc/malaysia-payroll-mcp",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "malaysia-payroll-mcp",
+      "version": "0.2.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

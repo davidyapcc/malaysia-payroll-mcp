@@ -26,6 +26,9 @@
   "bin": {
     "malaysia-payroll-mcp": "dist/entry/stdio.js"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "dist",
     "!dist/**/*.test.*"

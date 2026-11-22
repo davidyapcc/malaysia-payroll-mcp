@@ -138,6 +138,10 @@ EVAL_PROVIDER=ollama EVAL_JUDGE_PROVIDER=openai EVAL_JUDGE_MODEL=gpt-4o \
 EVAL_PROVIDER=ollama EVAL_JUDGE_MODEL=qwen3:14b EVAL_COMPARE_MODELS="qwen3:8b,llama3.1:8b" pnpm eval:compare
 ```
 
+## Releasing
+
+Bump `version` in `package.json`, `server.json` (both places) and `src/version.ts`, update the changelog, merge, then push a tag with the bare version number (for example `git tag 0.3.0 && git push origin 0.3.0`). `.github/workflows/publish.yml` checks the versions match, runs `pnpm check`, publishes to npm through [trusted publishing](https://docs.npmjs.com/trusted-publishers) (with provenance, no stored token) and lists the version on the [MCP Registry](https://registry.modelcontextprotocol.io) under `io.github.davidyapcc/malaysia-payroll-mcp`. Then create a GitHub release for the tag from its changelog entry; if any number changed, the release notes say "results changed" (see [Versioning](docs/architecture.md)).
+
 ## Licence
 
 [MIT](LICENSE)
