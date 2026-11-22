@@ -1,4 +1,4 @@
-// LLM provider adapters (Anthropic and OpenAI) for the agent eval harness.
+// LLM provider adapters (Anthropic, OpenAI and Ollama) for the agent eval harness.
 import Anthropic from "@anthropic-ai/sdk";
 import type {
   MessageParam,
@@ -9,7 +9,12 @@ import * as z from "zod";
 
 export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5";
 export const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
-const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
+export const DEFAULT_OLLAMA_MODEL = "qwen3:8b";
+export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1";
+
+export const PROVIDER_NAMES = ["anthropic", "openai", "ollama"] as const;
+export type ProviderName = (typeof PROVIDER_NAMES)[number];
 
 export interface MessagesCreateParams {
   readonly model: string;
@@ -67,11 +72,61 @@ const openAiResponseSchema = z.object({
  * OpenAI Chat Completions adapter implementing LlmClient via native fetch,
  * allowing OPENAI_API_KEY to be used as an alternative to ANTHROPIC_API_KEY.
  */
-export function createOpenAiClient(apiKey: string, fetchFn: typeof fetch = fetch): LlmClient {
+export function createOpenAiClient(
+  apiKey: string,
+  fetchFn: typeof fetch = fetch,
+  baseUrl: string = DEFAULT_OPENAI_BASE_URL,
+): LlmClient {
   if (apiKey.trim() === "") {
     throw new Error("OPENAI_API_KEY must be a non-empty string.");
   }
+  return createChatCompletionsClient({
+    url: chatCompletionsUrl(baseUrl),
+    headers: { Authorization: `Bearer ${apiKey}` },
+    maxTokensField: "max_completion_tokens",
+    providerLabel: "OpenAI",
+    shouldStripReasoning: false,
+    fetchFn,
+  });
+}
 
+/**
+ * Ollama adapter over its OpenAI-compatible Chat Completions endpoint. Runs open-weight models on
+ * the local machine, so it needs no API key and costs nothing per run.
+ */
+export function createOllamaClient(
+  baseUrl: string = DEFAULT_OLLAMA_BASE_URL,
+  fetchFn: typeof fetch = fetch,
+): LlmClient {
+  return createChatCompletionsClient({
+    url: chatCompletionsUrl(baseUrl),
+    headers: {},
+    // Ollama's compatibility layer documents max_tokens, not max_completion_tokens.
+    maxTokensField: "max_tokens",
+    providerLabel: "Ollama",
+    // Some open-weight models (Qwen3, DeepSeek-R1) put their reasoning in the answer text.
+    shouldStripReasoning: true,
+    fetchFn,
+  });
+}
+
+function chatCompletionsUrl(baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, "");
+  if (trimmed === "") {
+    throw new Error("Base URL must be a non-empty string.");
+  }
+  return `${trimmed}/chat/completions`;
+}
+
+function createChatCompletionsClient(config: {
+  readonly url: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly maxTokensField: "max_tokens" | "max_completion_tokens";
+  readonly providerLabel: string;
+  readonly shouldStripReasoning: boolean;
+  readonly fetchFn: typeof fetch;
+}): LlmClient {
+  const fetchFn = config.fetchFn;
   return {
     messages: {
       async create(params: MessagesCreateParams): Promise<MessagesResponseLike> {
@@ -84,15 +139,15 @@ export function createOpenAiClient(apiKey: string, fetchFn: typeof fetch = fetch
           },
         }));
 
-        const response = await fetchFn(OPENAI_CHAT_COMPLETIONS_URL, {
+        const response = await fetchFn(config.url, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${apiKey}`,
+            ...config.headers,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
             model: params.model,
-            max_completion_tokens: params.max_tokens,
+            [config.maxTokensField]: params.max_tokens,
             temperature: params.temperature,
             messages: toOpenAiMessages(params.system, params.messages),
             ...(openAiTools !== undefined && openAiTools.length > 0
@@ -102,9 +157,15 @@ export function createOpenAiClient(apiKey: string, fetchFn: typeof fetch = fetch
         });
 
         if (!response.ok) {
-          throw new Error(`OpenAI API error (${response.status}): ${await response.text()}`);
+          throw new Error(
+            `${config.providerLabel} API error (${response.status}): ${await response.text()}`,
+          );
         }
-        return parseOpenAiResponse(await response.json());
+        return parseOpenAiResponse(
+          await response.json(),
+          config.providerLabel,
+          config.shouldStripReasoning,
+        );
       },
     },
   };
@@ -177,18 +238,27 @@ function convertAssistantBlocks(blocks: readonly ContentBlockLike[]): Record<str
   };
 }
 
-function parseOpenAiResponse(rawJson: unknown): MessagesResponseLike {
+/** Removes `<think>...</think>` reasoning that some open-weight models put in the answer text. */
+export function stripReasoning(text: string): string {
+  return text.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim();
+}
+
+function parseOpenAiResponse(
+  rawJson: unknown,
+  providerLabel: string,
+  shouldStripReasoning: boolean,
+): MessagesResponseLike {
   const parsed = openAiResponseSchema.safeParse(rawJson);
   if (!parsed.success) {
-    throw new Error(`Invalid OpenAI response shape: ${parsed.error.message}`);
+    throw new Error(`Invalid ${providerLabel} response shape: ${parsed.error.message}`);
   }
 
   const choice = parsed.data.choices[0];
   const message = choice?.message;
+  const rawText = typeof message?.content === "string" ? message.content : "";
+  const answerText = shouldStripReasoning ? stripReasoning(rawText) : rawText;
   const textBlocks: ContentBlockLike[] =
-    typeof message?.content === "string" && message.content.length > 0
-      ? [{ type: "text", text: message.content }]
-      : [];
+    answerText.length > 0 ? [{ type: "text", text: answerText }] : [];
   const toolUseBlocks: ContentBlockLike[] = (message?.tool_calls ?? []).map((tc) => ({
     type: "tool_use",
     id: tc.id,
@@ -208,58 +278,97 @@ function getModelName(envVal: string | undefined, defaultModel: string): string 
 }
 
 export interface ResolvedProvider {
+  /** Client the agent runs on. */
   readonly client: LlmClient;
+  /** Client the judge runs on: the agent's client unless EVAL_JUDGE_PROVIDER names another. */
+  readonly judgeClient: LlmClient;
+  readonly agentProvider: ProviderName;
+  readonly judgeProvider: ProviderName;
   readonly agentModel: string;
   readonly judgeModel: string;
 }
 
-/** Validates provider env vars and returns the configured LLM client and model names. */
+function parseProviderName(raw: string | undefined, envName: string): ProviderName | undefined {
+  const value = raw?.trim().toLowerCase();
+  if (value === undefined || value === "") return undefined;
+  if (!(PROVIDER_NAMES as readonly string[]).includes(value)) {
+    throw new Error(
+      `Invalid ${envName} "${raw}": expected ${PROVIDER_NAMES.map((n) => `"${n}"`).join(", ")}.`,
+    );
+  }
+  return value as ProviderName;
+}
+
+const DEFAULT_MODELS: Readonly<Record<ProviderName, string>> = {
+  anthropic: DEFAULT_ANTHROPIC_MODEL,
+  openai: DEFAULT_OPENAI_MODEL,
+  ollama: DEFAULT_OLLAMA_MODEL,
+};
+
+function createClient(
+  provider: ProviderName,
+  env: NodeJS.ProcessEnv,
+  fetchFn: typeof fetch,
+): LlmClient {
+  if (provider === "ollama") {
+    return createOllamaClient(env.OLLAMA_BASE_URL?.trim() || DEFAULT_OLLAMA_BASE_URL, fetchFn);
+  }
+  if (provider === "anthropic") {
+    const anthropicKey = env.ANTHROPIC_API_KEY?.trim() ?? "";
+    if (anthropicKey === "") {
+      throw new Error('Provider "anthropic" is selected, but ANTHROPIC_API_KEY is not set.');
+    }
+    return createAnthropicClient(anthropicKey, fetchFn);
+  }
+  const openAiKey = env.OPENAI_API_KEY?.trim() ?? "";
+  if (openAiKey === "") {
+    throw new Error('Provider "openai" is selected, but OPENAI_API_KEY is not set.');
+  }
+  return createOpenAiClient(
+    openAiKey,
+    fetchFn,
+    env.OPENAI_BASE_URL?.trim() || DEFAULT_OPENAI_BASE_URL,
+  );
+}
+
+/**
+ * Validates provider env vars and returns the configured LLM clients and model names.
+ *
+ * EVAL_PROVIDER picks the agent's provider (default: Anthropic if its key is set, else OpenAI if
+ * its key is set). EVAL_JUDGE_PROVIDER optionally runs the judge elsewhere, for example a local
+ * agent graded by a hosted judge.
+ */
 export function resolveProvider(
   env: NodeJS.ProcessEnv = process.env,
   fetchFn: typeof fetch = fetch,
 ): ResolvedProvider {
-  const rawProvider = env.EVAL_PROVIDER?.trim().toLowerCase();
-  if (
-    rawProvider !== undefined &&
-    rawProvider !== "" &&
-    rawProvider !== "anthropic" &&
-    rawProvider !== "openai"
-  ) {
+  const explicitAgent = parseProviderName(env.EVAL_PROVIDER, "EVAL_PROVIDER");
+  const explicitJudge = parseProviderName(env.EVAL_JUDGE_PROVIDER, "EVAL_JUDGE_PROVIDER");
+
+  const agentProvider =
+    explicitAgent ??
+    (env.ANTHROPIC_API_KEY?.trim()
+      ? "anthropic"
+      : env.OPENAI_API_KEY?.trim()
+        ? "openai"
+        : undefined);
+  if (agentProvider === undefined) {
     throw new Error(
-      `Invalid EVAL_PROVIDER "${env.EVAL_PROVIDER}": expected "anthropic" or "openai".`,
+      'Missing API key: set ANTHROPIC_API_KEY or OPENAI_API_KEY, or set EVAL_PROVIDER="ollama".',
     );
   }
+  const judgeProvider = explicitJudge ?? agentProvider;
 
-  const anthropicKey = env.ANTHROPIC_API_KEY?.trim() ?? "";
-  const openAiKey = env.OPENAI_API_KEY?.trim() ?? "";
-  const provider =
-    rawProvider !== undefined && rawProvider !== ""
-      ? rawProvider
-      : anthropicKey !== ""
-        ? "anthropic"
-        : openAiKey !== ""
-          ? "openai"
-          : undefined;
+  const client = createClient(agentProvider, env, fetchFn);
+  const judgeClient =
+    judgeProvider === agentProvider ? client : createClient(judgeProvider, env, fetchFn);
 
-  if (provider === undefined) {
-    throw new Error("Missing API key: set ANTHROPIC_API_KEY or OPENAI_API_KEY.");
-  }
-  if (provider === "anthropic") {
-    if (anthropicKey === "") {
-      throw new Error('EVAL_PROVIDER is "anthropic", but ANTHROPIC_API_KEY is not set.');
-    }
-    return {
-      client: createAnthropicClient(anthropicKey, fetchFn),
-      agentModel: getModelName(env.EVAL_AGENT_MODEL, DEFAULT_ANTHROPIC_MODEL),
-      judgeModel: getModelName(env.EVAL_JUDGE_MODEL, DEFAULT_ANTHROPIC_MODEL),
-    };
-  }
-  if (openAiKey === "") {
-    throw new Error('EVAL_PROVIDER is "openai", but OPENAI_API_KEY is not set.');
-  }
   return {
-    client: createOpenAiClient(openAiKey, fetchFn),
-    agentModel: getModelName(env.EVAL_AGENT_MODEL, DEFAULT_OPENAI_MODEL),
-    judgeModel: getModelName(env.EVAL_JUDGE_MODEL, DEFAULT_OPENAI_MODEL),
+    client,
+    judgeClient,
+    agentProvider,
+    judgeProvider,
+    agentModel: getModelName(env.EVAL_AGENT_MODEL, DEFAULT_MODELS[agentProvider]),
+    judgeModel: getModelName(env.EVAL_JUDGE_MODEL, DEFAULT_MODELS[judgeProvider]),
   };
 }

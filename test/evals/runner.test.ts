@@ -57,6 +57,33 @@ function judgeFailingFor(
 }
 
 describe("judge retries and judge errors", () => {
+  it("sends judge and control calls to judgeLlm and agent calls to llm when both are given", async () => {
+    const evalCase = firstCase();
+    const controls = loadSeededControls().slice(0, 1);
+    const agentRequests: string[] = [];
+    const judgeRequests: string[] = [];
+    const recording = (fake: LlmClient, log: string[]): LlmClient => ({
+      messages: {
+        create: (request) => {
+          log.push(request.tools === undefined ? "judge" : "agent");
+          return fake.messages.create(request);
+        },
+      },
+    });
+    const fake = createFakeLlm({ evalCases: [evalCase], judgeReply: catchingJudgeReply(controls) });
+
+    const scorecard = await runEvalSuite({
+      evalCases: [evalCase],
+      llm: recording(fake, agentRequests),
+      judgeLlm: recording(fake, judgeRequests),
+      controls,
+    });
+
+    expect(agentRequests).toEqual(["agent", "agent"]);
+    expect(judgeRequests).toEqual(["judge", "judge"]);
+    expect(scorecard.controlSummary.caught).toBe(1);
+  });
+
   it("retries a failed judge call once and records the retried score", async () => {
     const evalCase = firstCase();
     let attempts = 0;

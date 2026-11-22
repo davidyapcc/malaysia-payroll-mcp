@@ -43,6 +43,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "eval": "pnpm build && node --env-file-if-exists=.env evals/run.ts",
+    "eval:local": "pnpm build && EVAL_PROVIDER=ollama node --env-file-if-exists=.env evals/run.ts",
+    "eval:compare": "pnpm build && node --env-file-if-exists=.env evals/compare.ts",
     "check": "pnpm gen:tables:check && pnpm lint && pnpm typecheck && pnpm test",
     "prepublishOnly": "pnpm build"
   },

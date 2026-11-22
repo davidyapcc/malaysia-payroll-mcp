@@ -1,27 +1,64 @@
 import { describe, expect, it } from "vitest";
 import {
   createAnthropicClient,
+  createOllamaClient,
   createOpenAiClient,
   DEFAULT_ANTHROPIC_MODEL,
+  DEFAULT_OLLAMA_BASE_URL,
+  DEFAULT_OLLAMA_MODEL,
   DEFAULT_OPENAI_MODEL,
   resolveProvider,
+  stripReasoning,
 } from "../../evals/providers.js";
+
+function captureFetch(reply: unknown): {
+  readonly fetchFn: typeof fetch;
+  readonly calls: { url: string; headers: Record<string, string>; body: Record<string, unknown> }[];
+} {
+  const calls: { url: string; headers: Record<string, string>; body: Record<string, unknown> }[] =
+    [];
+  const fetchFn: typeof fetch = async (input, init) => {
+    calls.push({
+      url: String(input),
+      headers: (init?.headers ?? {}) as Record<string, string>,
+      body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
+    });
+    return new Response(JSON.stringify(reply), { status: 200 });
+  };
+  return { fetchFn, calls };
+}
+
+const TEXT_REPLY = { choices: [{ finish_reason: "stop", message: { content: "ok" } }] };
+const BASIC_PARAMS = {
+  model: "m",
+  max_tokens: 64,
+  temperature: 0,
+  system: "s",
+  messages: [{ role: "user" as const, content: "hi" }],
+};
+
 import { parseConcurrency } from "../../evals/runner.js";
 
 describe("Providers and concurrency validation", () => {
   it("validates EVAL_PROVIDER, API keys and EVAL_CONCURRENCY strictly", () => {
     expect(() => resolveProvider({ EVAL_PROVIDER: "typo" })).toThrow(
-      'Invalid EVAL_PROVIDER "typo"',
+      'Invalid EVAL_PROVIDER "typo": expected "anthropic", "openai", "ollama".',
+    );
+    expect(() => resolveProvider({ EVAL_PROVIDER: "ollama", EVAL_JUDGE_PROVIDER: "x" })).toThrow(
+      'Invalid EVAL_JUDGE_PROVIDER "x"',
     );
     expect(() => resolveProvider({})).toThrow(
-      "Missing API key: set ANTHROPIC_API_KEY or OPENAI_API_KEY.",
+      'Missing API key: set ANTHROPIC_API_KEY or OPENAI_API_KEY, or set EVAL_PROVIDER="ollama".',
     );
     expect(() => resolveProvider({ EVAL_PROVIDER: "anthropic" })).toThrow(
-      'EVAL_PROVIDER is "anthropic", but ANTHROPIC_API_KEY is not set.',
+      'Provider "anthropic" is selected, but ANTHROPIC_API_KEY is not set.',
     );
     expect(() => resolveProvider({ EVAL_PROVIDER: "openai" })).toThrow(
-      'EVAL_PROVIDER is "openai", but OPENAI_API_KEY is not set.',
+      'Provider "openai" is selected, but OPENAI_API_KEY is not set.',
     );
+    expect(() =>
+      resolveProvider({ EVAL_PROVIDER: "ollama", EVAL_JUDGE_PROVIDER: "openai" }),
+    ).toThrow('Provider "openai" is selected, but OPENAI_API_KEY is not set.');
 
     const anthropicProvider = resolveProvider({ ANTHROPIC_API_KEY: "sk-ant-test" });
     expect(anthropicProvider.agentModel).toBe(DEFAULT_ANTHROPIC_MODEL);
@@ -40,6 +77,8 @@ describe("Providers and concurrency validation", () => {
     expect(explicitOpenAi.judgeModel).toBe("gpt-4o");
 
     expect(parseConcurrency(undefined)).toBe(5);
+    expect(parseConcurrency(" ", 1)).toBe(1);
+    expect(parseConcurrency("2", 1)).toBe(2);
     expect(parseConcurrency("3")).toBe(3);
     expect(() => parseConcurrency("abc")).toThrow('Invalid EVAL_CONCURRENCY "abc"');
     expect(() => parseConcurrency("0")).toThrow('Invalid EVAL_CONCURRENCY "0"');
@@ -277,5 +316,101 @@ describe("Providers and concurrency validation", () => {
     });
     expect(result.stop_reason).toBe("end_turn");
     expect(result.content).toEqual([{ type: "text", text: "Anthropic response" }]);
+  });
+
+  it("resolves a free local Ollama provider without any API key", async () => {
+    const { fetchFn, calls } = captureFetch(TEXT_REPLY);
+    const provider = resolveProvider({ EVAL_PROVIDER: "Ollama" }, fetchFn);
+    expect(provider.agentProvider).toBe("ollama");
+    expect(provider.judgeProvider).toBe("ollama");
+    expect(provider.agentModel).toBe(DEFAULT_OLLAMA_MODEL);
+    expect(provider.judgeModel).toBe(DEFAULT_OLLAMA_MODEL);
+    expect(provider.judgeClient).toBe(provider.client);
+
+    await provider.client.messages.create(BASIC_PARAMS);
+    expect(calls[0]?.url).toBe(`${DEFAULT_OLLAMA_BASE_URL}/chat/completions`);
+    expect(calls[0]?.headers).not.toHaveProperty("Authorization");
+    expect(calls[0]?.body.max_tokens).toBe(64);
+    expect(calls[0]?.body).not.toHaveProperty("max_completion_tokens");
+  });
+
+  it("honours OLLAMA_BASE_URL and OPENAI_BASE_URL overrides", async () => {
+    const { fetchFn, calls } = captureFetch(TEXT_REPLY);
+    const ollama = resolveProvider(
+      { EVAL_PROVIDER: "ollama", OLLAMA_BASE_URL: "http://gpu-box:11434/v1/" },
+      fetchFn,
+    );
+    await ollama.client.messages.create(BASIC_PARAMS);
+    const openai = resolveProvider(
+      { OPENAI_API_KEY: "sk-test", OPENAI_BASE_URL: "https://proxy.example/v1" },
+      fetchFn,
+    );
+    await openai.client.messages.create(BASIC_PARAMS);
+    const openaiDefault = resolveProvider({ OPENAI_API_KEY: "sk-test" }, fetchFn);
+    await openaiDefault.client.messages.create(BASIC_PARAMS);
+
+    expect(calls.map((c) => c.url)).toEqual([
+      "http://gpu-box:11434/v1/chat/completions",
+      "https://proxy.example/v1/chat/completions",
+      "https://api.openai.com/v1/chat/completions",
+    ]);
+    expect(calls[1]?.headers.Authorization).toBe("Bearer sk-test");
+    expect(calls[1]?.body.max_completion_tokens).toBe(64);
+    expect(() => createOllamaClient("  ")).toThrow("Base URL must be a non-empty string.");
+    expect(createOllamaClient().messages).toBeDefined();
+  });
+
+  it("runs the judge on a separate provider when EVAL_JUDGE_PROVIDER is set", () => {
+    const provider = resolveProvider({
+      EVAL_PROVIDER: "ollama",
+      EVAL_AGENT_MODEL: "llama3.1:8b",
+      EVAL_JUDGE_PROVIDER: "openai",
+      EVAL_JUDGE_MODEL: "gpt-4o",
+      OPENAI_API_KEY: "sk-test",
+    });
+    expect(provider.agentProvider).toBe("ollama");
+    expect(provider.judgeProvider).toBe("openai");
+    expect(provider.agentModel).toBe("llama3.1:8b");
+    expect(provider.judgeModel).toBe("gpt-4o");
+    expect(provider.judgeClient).not.toBe(provider.client);
+
+    const anthropicJudge = resolveProvider({
+      EVAL_PROVIDER: "ollama",
+      EVAL_JUDGE_PROVIDER: "anthropic",
+      ANTHROPIC_API_KEY: "sk-ant-test",
+    });
+    expect(anthropicJudge.judgeModel).toBe(DEFAULT_ANTHROPIC_MODEL);
+  });
+
+  it("strips <think> reasoning from local model answers", async () => {
+    expect(stripReasoning("<think>a\nb</think>\nAnswer")).toBe("Answer");
+    expect(stripReasoning("<think>never closed")).toBe("");
+    expect(stripReasoning("Plain")).toBe("Plain");
+
+    const { fetchFn } = captureFetch({
+      choices: [{ finish_reason: "stop", message: { content: "<think>hmm</think>" } }],
+    });
+    const result = await createOllamaClient(DEFAULT_OLLAMA_BASE_URL, fetchFn).messages.create(
+      BASIC_PARAMS,
+    );
+    expect(result.content).toEqual([]);
+  });
+
+  it("leaves OpenAI answers as they are, <think> tags included", async () => {
+    const { fetchFn } = captureFetch({
+      choices: [{ finish_reason: "stop", message: { content: "<think>x</think> Answer" } }],
+    });
+    const result = await createOpenAiClient("sk-test", fetchFn).messages.create(BASIC_PARAMS);
+    expect(result.content).toEqual([{ type: "text", text: "<think>x</think> Answer" }]);
+  });
+
+  it("labels Ollama HTTP errors with the provider name", async () => {
+    const client = createOllamaClient(
+      DEFAULT_OLLAMA_BASE_URL,
+      async () => new Response("model not found", { status: 404 }),
+    );
+    await expect(client.messages.create(BASIC_PARAMS)).rejects.toThrow(
+      "Ollama API error (404): model not found",
+    );
   });
 });

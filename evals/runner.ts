@@ -1,5 +1,5 @@
 // Agent tool-use loop, judge orchestration and scorecard writer for the eval harness.
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -31,7 +31,7 @@ import {
   type RecordedToolCall,
   type RubricScore,
 } from "./grading.ts";
-import { DEFAULT_ANTHROPIC_MODEL, type LlmClient } from "./providers.ts";
+import { DEFAULT_ANTHROPIC_MODEL, type LlmClient, type ProviderName } from "./providers.ts";
 import {
   buildScorecard,
   type GateThresholds,
@@ -137,11 +137,12 @@ export async function evaluateSingleCase(params: {
   readonly mcpClient: Client;
   readonly tools: readonly Tool[];
   readonly llm: LlmClient;
+  readonly judgeLlm: LlmClient;
   readonly agentModel: string;
   readonly judgeModel: string;
 }): Promise<CaseEvaluation> {
   const startedAt = Date.now();
-  const { evalCase, mcpClient, tools, llm, agentModel, judgeModel } = params;
+  const { evalCase, mcpClient, tools, llm, judgeLlm, agentModel, judgeModel } = params;
   let run: AgentRun;
   try {
     run = await runAgentLoop({ prompt: evalCase.prompt, mcpClient, tools, llm, agentModel });
@@ -153,7 +154,7 @@ export async function evaluateSingleCase(params: {
 
   const layer1 = evaluateLayer1(evalCase, run.toolCalls, run.finalAnswer);
   const judge = await judgeAnswer({
-    llm,
+    llm: judgeLlm,
     judgeModel,
     input: {
       caseId: evalCase.id,
@@ -437,19 +438,54 @@ async function judgeAnswer(params: {
 }
 
 /** Validates EVAL_CONCURRENCY as a positive integer. */
-export function parseConcurrency(raw: string | undefined): number {
-  if (raw === undefined || raw.trim() === "") return DEFAULT_CONCURRENCY;
+export function parseConcurrency(
+  raw: string | undefined,
+  fallback: number = DEFAULT_CONCURRENCY,
+): number {
+  return parsePositiveInteger(raw, "EVAL_CONCURRENCY", fallback);
+}
+
+/** Parses an optional positive-integer env var, returning `fallback` when it is unset or blank. */
+export function parsePositiveInteger(
+  raw: string | undefined,
+  envName: string,
+  fallback: number,
+): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1) {
-    throw new Error(`Invalid EVAL_CONCURRENCY "${raw}": expected a positive integer.`);
+    throw new Error(`Invalid ${envName} "${raw}": expected a positive integer.`);
   }
   return parsed;
+}
+
+/** A local model serves one request at a time well; parallel requests mostly queue and time out. */
+export const LOCAL_MODEL_CONCURRENCY = 1;
+
+/** EVAL_CONCURRENCY if set; otherwise 1 when either model is local, else the default. */
+export function concurrencyFor(
+  raw: string | undefined,
+  providers: { readonly agentProvider: ProviderName; readonly judgeProvider: ProviderName },
+): number {
+  const isLocal = providers.agentProvider === "ollama" || providers.judgeProvider === "ollama";
+  return parseConcurrency(raw, isLocal ? LOCAL_MODEL_CONCURRENCY : DEFAULT_CONCURRENCY);
+}
+
+/** The built server when `dist/` exists, else the TypeScript source (for runs before a build). */
+export function defaultServerModuleSpecifier(
+  isBuilt: (url: URL) => boolean = (url) => existsSync(url),
+): string {
+  return isBuilt(new URL("../dist/mcp/server.js", import.meta.url))
+    ? "../dist/mcp/server.js"
+    : "../src/mcp/server.js";
 }
 
 /** Runs the full eval suite with bounded concurrency and returns the scorecard. */
 export async function runEvalSuite(options: {
   readonly evalCases: readonly EvalCase[];
   readonly llm: LlmClient;
+  /** Client for the judge and seeded controls; defaults to `llm`. */
+  readonly judgeLlm?: LlmClient;
   readonly controls?: readonly SeededControl[];
   readonly agentModel?: string;
   readonly judgeModel?: string;
@@ -461,6 +497,7 @@ export async function runEvalSuite(options: {
   const judgeModel = options.judgeModel ?? DEFAULT_ANTHROPIC_MODEL;
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
   const controls = options.controls ?? loadSeededControls();
+  const judgeLlm = options.judgeLlm ?? options.llm;
 
   const mcpClient = await createInMemoryMcpClient(options.serverModuleSpecifier);
   try {
@@ -477,11 +514,12 @@ export async function runEvalSuite(options: {
       mcpClient,
       tools: anthropicTools,
       llm: options.llm,
+      judgeLlm,
       agentModel,
       judgeModel,
     });
     const controlResults = await Promise.all(
-      controls.map((control) => evaluateSeededControl({ control, llm: options.llm, judgeModel })),
+      controls.map((control) => evaluateSeededControl({ control, llm: judgeLlm, judgeModel })),
     );
 
     return buildScorecard({
@@ -502,6 +540,7 @@ async function runWorkers(params: {
   readonly mcpClient: Client;
   readonly tools: readonly Tool[];
   readonly llm: LlmClient;
+  readonly judgeLlm: LlmClient;
   readonly agentModel: string;
   readonly judgeModel: string;
 }): Promise<CaseEvaluation[]> {
@@ -515,6 +554,7 @@ async function runWorkers(params: {
         mcpClient: params.mcpClient,
         tools: params.tools,
         llm: params.llm,
+        judgeLlm: params.judgeLlm,
         agentModel: params.agentModel,
         judgeModel: params.judgeModel,
       });
