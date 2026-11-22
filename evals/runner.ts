@@ -40,9 +40,10 @@ import {
 } from "./scorecard.ts";
 
 const DEFAULT_CONCURRENCY = 5;
-const MAX_AGENT_TOKENS = 1024;
+export const MAX_AGENT_TOKENS = 1024;
 const MAX_JUDGE_TOKENS = 512;
-const MAX_TOOL_ROUNDS = 3;
+/** Model calls an agent may make for one prompt; shared by every agent implementation. */
+export const MAX_TOOL_ROUNDS = 3;
 /** The judge gets one retry after a network, HTTP or parse failure. */
 const JUDGE_MAX_ATTEMPTS = 2;
 /** An agent round gets one retry; if it still fails, the case is recorded as an agent error. */
@@ -140,12 +141,16 @@ export async function evaluateSingleCase(params: {
   readonly judgeLlm: LlmClient;
   readonly agentModel: string;
   readonly judgeModel: string;
+  readonly agent: EvalAgent | undefined;
 }): Promise<CaseEvaluation> {
   const startedAt = Date.now();
-  const { evalCase, mcpClient, tools, llm, judgeLlm, agentModel, judgeModel } = params;
+  const { evalCase, mcpClient, tools, llm, judgeLlm, agentModel, judgeModel, agent } = params;
   let run: AgentRun;
   try {
-    run = await runAgentLoop({ prompt: evalCase.prompt, mcpClient, tools, llm, agentModel });
+    run =
+      agent === undefined
+        ? await runAgentLoop({ prompt: evalCase.prompt, mcpClient, tools, llm, agentModel })
+        : await agent({ prompt: evalCase.prompt, mcpClient });
   } catch (error: unknown) {
     const message = describeError(error);
     console.error(`Agent error for case ${evalCase.id}: ${message}`);
@@ -227,10 +232,21 @@ async function evaluateSeededControl(params: {
   };
 }
 
-interface AgentRun {
+/** What an agent did for one prompt: the tool calls it made and its final answer. */
+export interface AgentRun {
   readonly toolCalls: readonly RecordedToolCall[];
   readonly finalAnswer: string;
 }
+
+/**
+ * An agent implementation under evaluation. It answers one prompt using the MCP server behind
+ * `mcpClient` and throws on failure (recorded as an agent error). The default is the hand-rolled
+ * tool loop over `LlmClient`; `evals/agents-sdk.ts` provides one built on the OpenAI Agents SDK.
+ */
+export type EvalAgent = (input: {
+  readonly prompt: string;
+  readonly mcpClient: Client;
+}) => Promise<AgentRun>;
 
 interface AgentStep {
   readonly textParts: readonly string[];
@@ -332,6 +348,28 @@ function extractToolUses(
     }));
 }
 
+/** Validates a raw MCP tools/call result and records it the way the graders read it. */
+export function recordToolCall(
+  name: string,
+  args: Record<string, unknown>,
+  rawResult: unknown,
+): RecordedToolCall {
+  const parsed = mcpCallResultSchema.parse(rawResult);
+  const textContent = parsed.content
+    .map((c) => c.text)
+    .join("\n")
+    .trim();
+  return {
+    name,
+    arguments: args,
+    isError: Boolean(parsed.isError),
+    textContent,
+    ...(parsed.structuredContent !== undefined
+      ? { structuredContent: parsed.structuredContent }
+      : {}),
+  };
+}
+
 async function executeToolUses(
   mcpClient: Client,
   toolUses: readonly { id: string; name: string; input: Record<string, unknown> }[],
@@ -342,27 +380,12 @@ async function executeToolUses(
   const executed = await Promise.all(
     toolUses.map(async (toolUse) => {
       const rawResult = await mcpClient.callTool({ name: toolUse.name, arguments: toolUse.input });
-      const parsed = mcpCallResultSchema.parse(rawResult);
-      const textContent = parsed.content
-        .map((c) => c.text)
-        .join("\n")
-        .trim();
-      const isError = Boolean(parsed.isError);
-
-      const recordedCall: RecordedToolCall = {
-        name: toolUse.name,
-        arguments: toolUse.input,
-        isError,
-        textContent,
-        ...(parsed.structuredContent !== undefined
-          ? { structuredContent: parsed.structuredContent }
-          : {}),
-      };
+      const recordedCall = recordToolCall(toolUse.name, toolUse.input, rawResult);
       const toolResult: ToolResultBlockParam = {
         type: "tool_result",
         tool_use_id: toolUse.id,
-        content: textContent,
-        is_error: isError,
+        content: recordedCall.textContent,
+        is_error: recordedCall.isError,
       };
       return { recordedCall, toolResult };
     }),
@@ -486,6 +509,8 @@ export async function runEvalSuite(options: {
   readonly llm: LlmClient;
   /** Client for the judge and seeded controls; defaults to `llm`. */
   readonly judgeLlm?: LlmClient;
+  /** Agent under evaluation; defaults to the hand-rolled tool loop on `llm` and `agentModel`. */
+  readonly agent?: EvalAgent;
   readonly controls?: readonly SeededControl[];
   readonly agentModel?: string;
   readonly judgeModel?: string;
@@ -517,6 +542,7 @@ export async function runEvalSuite(options: {
       judgeLlm,
       agentModel,
       judgeModel,
+      agent: options.agent,
     });
     const controlResults = await Promise.all(
       controls.map((control) => evaluateSeededControl({ control, llm: judgeLlm, judgeModel })),
@@ -543,6 +569,7 @@ async function runWorkers(params: {
   readonly judgeLlm: LlmClient;
   readonly agentModel: string;
   readonly judgeModel: string;
+  readonly agent: EvalAgent | undefined;
 }): Promise<CaseEvaluation[]> {
   const results = new Array<CaseEvaluation>(params.evalCases.length);
   let nextIndex = 0;
@@ -557,6 +584,7 @@ async function runWorkers(params: {
         judgeLlm: params.judgeLlm,
         agentModel: params.agentModel,
         judgeModel: params.judgeModel,
+        agent: params.agent,
       });
     }
   };

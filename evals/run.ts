@@ -1,6 +1,7 @@
 // CLI entry point for running the two-layer agent eval suite (`pnpm eval`).
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseAgentImplementation, resolveEvalAgent } from "./agents-sdk.ts";
 import type { SeededControl } from "./controls.ts";
 import type { EvalCase } from "./grading.ts";
 import { resolveProvider } from "./providers.ts";
@@ -27,11 +28,14 @@ export async function runCli(
   options: RunCliOptions = {},
 ): Promise<number> {
   const provider = resolveProvider(env, options.fetchFn);
+  const agentImpl = parseAgentImplementation(env.EVAL_AGENT_IMPL);
+  const agent = resolveEvalAgent(agentImpl, provider, env, options.fetchFn);
   const scorecard = await runEvalSuite({
     evalCases: options.evalCases ?? loadEvalCases(),
     ...(options.controls !== undefined ? { controls: options.controls } : {}),
     llm: provider.client,
     judgeLlm: provider.judgeClient,
+    ...(agent !== undefined ? { agent } : {}),
     agentModel: provider.agentModel,
     judgeModel: provider.judgeModel,
     concurrency: concurrencyFor(env.EVAL_CONCURRENCY, provider),
@@ -44,7 +48,7 @@ export async function runCli(
     env.GITHUB_STEP_SUMMARY,
   );
 
-  console.log(`Agent: ${provider.agentProvider}/${provider.agentModel}`);
+  console.log(`Agent: ${provider.agentProvider}/${provider.agentModel} (${agentImpl})`);
   console.log(`Judge: ${provider.judgeProvider}/${provider.judgeModel}`);
   console.log(renderScorecardMarkdown(scorecard));
   console.log(`Scorecard written to ${jsonPath} and ${markdownPath}`);

@@ -4,6 +4,11 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { arch, cpus, platform, totalmem } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  type AgentImplementation,
+  parseAgentImplementation,
+  resolveEvalAgent,
+} from "./agents-sdk.ts";
 import type { SeededControl } from "./controls.ts";
 import type { EvalCase } from "./grading.ts";
 import { type ProviderName, resolveProvider } from "./providers.ts";
@@ -66,6 +71,7 @@ export interface ModelSummary {
 
 export interface Comparison {
   readonly generatedAt: string;
+  readonly agentImplementation: AgentImplementation;
   readonly agentProvider: ProviderName;
   readonly judgeProvider: ProviderName;
   readonly judgeModel: string;
@@ -175,6 +181,7 @@ function summarizeModel(agentModel: string, runs: readonly ComparisonRun[]): Mod
 /** Groups runs by agent model, keeping the order models were first run in. */
 export function buildComparison(params: {
   readonly runs: readonly ComparisonRun[];
+  readonly agentImplementation: AgentImplementation;
   readonly agentProvider: ProviderName;
   readonly judgeProvider: ProviderName;
   readonly judgeModel: string;
@@ -187,6 +194,7 @@ export function buildComparison(params: {
   }
   return {
     generatedAt: params.generatedAt ?? new Date().toISOString(),
+    agentImplementation: params.agentImplementation,
     agentProvider: params.agentProvider,
     judgeProvider: params.judgeProvider,
     judgeModel: params.judgeModel,
@@ -221,7 +229,7 @@ export function renderComparisonMarkdown(comparison: Comparison): string {
   return [
     "# Agent eval model comparison",
     "",
-    `Generated ${comparison.generatedAt}. Agent provider: ${comparison.agentProvider}. Judge: ${comparison.judgeProvider}/\`${comparison.judgeModel}\` for every row.`,
+    `Generated ${comparison.generatedAt}. Agent: ${comparison.agentImplementation} on ${comparison.agentProvider}. Judge: ${comparison.judgeProvider}/\`${comparison.judgeModel}\` for every row.`,
     "",
     `Hardware: ${hw.cpu} (${hw.cpuCount} cores), ${hw.memoryGib} GiB RAM, ${hw.platform}/${hw.arch}.`,
     "",
@@ -256,6 +264,7 @@ export async function runCompareCli(
     );
   }
   const log = options.log ?? console.log;
+  const agentImplementation = parseAgentImplementation(env.EVAL_AGENT_IMPL);
   const models = parseCompareModels(env.EVAL_COMPARE_MODELS);
   const runsPerModel = parseCompareRuns(env.EVAL_COMPARE_RUNS);
   const evalCases = options.evalCases ?? loadEvalCases();
@@ -266,6 +275,7 @@ export async function runCompareCli(
     resolveProvider({ ...env, EVAL_AGENT_MODEL: model }, options.fetchFn),
   );
   for (const provider of providers) {
+    const agent = resolveEvalAgent(agentImplementation, provider, env, options.fetchFn);
     for (let run = 1; run <= runsPerModel; run++) {
       log(`Running ${provider.agentModel}, run ${run} of ${runsPerModel}...`);
       const startedAt = Date.now();
@@ -274,6 +284,7 @@ export async function runCompareCli(
         ...(options.controls !== undefined ? { controls: options.controls } : {}),
         llm: provider.client,
         judgeLlm: provider.judgeClient,
+        ...(agent !== undefined ? { agent } : {}),
         agentModel: provider.agentModel,
         judgeModel: provider.judgeModel,
         concurrency: concurrencyFor(env.EVAL_CONCURRENCY, provider),
@@ -290,6 +301,7 @@ export async function runCompareCli(
   const [first] = providers as [ReturnType<typeof resolveProvider>];
   const comparison = buildComparison({
     runs,
+    agentImplementation,
     agentProvider: first.agentProvider,
     judgeProvider: first.judgeProvider,
     judgeModel,
